@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In — Video Compositor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0d0d0f;
+    --surface: #16171c;
+    --border:  #2a2b35;
+    --accent:  #5b6af5;
+    --accent-h:#7080ff;
+    --text:    #e2e4f0;
+    --muted:   #6b7280;
+    --radius:  12px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 40px 36px;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  .logo {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -.5px;
+    margin-bottom: 6px;
+  }
+
+  .logo span { color: var(--accent); }
+
+  .tagline {
+    font-size: .85rem;
+    color: var(--muted);
+    margin-bottom: 32px;
+  }
+
+  h2 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .sub {
+    font-size: .85rem;
+    color: var(--muted);
+    margin-bottom: 24px;
+    line-height: 1.5;
+  }
+
+  .field { margin-bottom: 16px; }
+
+  .field label {
+    display: block;
+    font-size: .82rem;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .field input {
+    width: 100%;
+    background: #0d0d0f;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: .95rem;
+    outline: none;
+    transition: border-color .2s;
+  }
+
+  .field input:focus { border-color: var(--accent); }
+
+  .btn {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: .95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s;
+    margin-top: 4px;
+  }
+
+  .btn:hover { background: var(--accent-h); }
+
+  .alert {
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: .85rem;
+    margin-bottom: 20px;
+  }
+
+  .alert-error {
+    background: rgba(239,68,68,.1);
+    border: 1px solid rgba(239,68,68,.3);
+    color: #fca5a5;
+  }
+
+  .alert-success {
+    background: rgba(34,197,94,.1);
+    border: 1px solid rgba(34,197,94,.3);
+    color: #86efac;
+  }
+
+  .footer-link {
+    margin-top: 24px;
+    font-size: .82rem;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .footer-link a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .footer-link a:hover { text-decoration: underline; }
+
+  .sent-icon {
+    font-size: 2.5rem;
+    margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+
+  <div class="logo">Video <span>Compositor</span></div>
+  <div class="tagline">Vertical reels, assembled instantly</div>
+
+  {% if sent %}
+
+    <div class="sent-icon">📬</div>
+    <h2>Check your inbox</h2>
+    <p class="sub">
+      We sent a login link to <strong>{{ email }}</strong>.
+      Click it to sign in — it expires in 1 hour.
+    </p>
+    <p class="sub">Don't see it? Check your spam folder.</p>
+
+  {% else %}
+
+    <h2>Sign in</h2>
+    <p class="sub">Enter your email and we'll send you a magic link.</p>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+      <div class="field">
+        <label for="email">Email address</label>
+        <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+      </div>
+      <button type="submit" class="btn">Send login link</button>
+    </form>
+
+    <div class="footer-link">
+      Don't have access yet? <a href="/">Buy for $15</a>
+    </div>
+
+  {% endif %}
+
+</div>
+
+</body>
+</html>

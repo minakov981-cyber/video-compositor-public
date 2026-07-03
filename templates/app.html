@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Compositor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0d0d0f;
+    --surface:  #16171c;
+    --surface2: #1e1f26;
+    --border:   #2a2b35;
+    --accent:   #5b6af5;
+    --accent-h: #7080ff;
+    --text:     #e2e4f0;
+    --muted:    #6b7280;
+    --green:    #22c55e;
+    --red:      #ef4444;
+    --radius:   12px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 32px 16px 80px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--muted); margin-top: 6px; font-size: .95rem; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  @media (min-width: 768px) {
+    .layout { grid-template-columns: 1fr 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+  .card-title {
+    font-size: .8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 18px;
+  }
+
+  /* ── Drop zone ── */
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    user-select: none;
+  }
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(91,106,245,.06);
+  }
+  #drop-zone svg { opacity: .4; margin-bottom: 10px; }
+  #drop-zone p { color: var(--muted); font-size: .9rem; }
+  #drop-zone strong { color: var(--accent); }
+
+  /* ── Clips list ── */
+  #clips-list { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .clip-row {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: .85rem;
+  }
+  .clip-row .badge {
+    font-size: .7rem; font-weight: 600; padding: 2px 7px;
+    border-radius: 999px; flex-shrink: 0;
+  }
+  .badge-hook  { background: rgba(251,191,36,.15); color: #fbbf24; }
+  .badge-final { background: rgba(34,197,94,.15);  color: #22c55e; }
+  .badge-num   { background: rgba(148,163,184,.12); color: #94a3b8; font-variant-numeric: tabular-nums; }
+  .badge-mid   { background: rgba(107,114,128,.15); color: var(--muted); }
+  .clip-name {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: text; transition: color .15s;
+  }
+  .clip-name:hover { color: var(--accent); }
+  .clip-name-input {
+    flex: 1; min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: .85rem;
+    font-family: inherit;
+    padding: 1px 6px;
+    outline: none;
+  }
+  .clip-remove {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; font-size: 1rem; padding: 0 4px;
+    transition: color .15s;
+  }
+  .clip-remove:hover { color: var(--red); }
+
+  /* ── Audio row ── */
+  .audio-row {
+    display: flex; align-items: center; gap: 12px; margin-top: 4px;
+  }
+  .audio-row label {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 16px;
+    cursor: pointer; font-size: .85rem; transition: border-color .2s;
+    flex-shrink: 0;
+  }
+  .audio-row label:hover { border-color: var(--accent); }
+  #audio-name { color: var(--muted); font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Form fields ── */
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: .82rem; color: var(--muted); margin-bottom: 6px; }
+  .field input[type="text"],
+  .field input[type="number"],
+  .field select,
+  .field textarea {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 9px 12px;
+    font-size: .9rem; outline: none; transition: border-color .2s;
+  }
+  .field textarea {
+    resize: vertical; font-family: inherit; line-height: 1.5; min-height: 80px;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+  .field input:disabled, .field select:disabled, .field textarea:disabled {
+    opacity: 0.4; cursor: not-allowed;
+  }
+  .field .hint { font-size: .75rem; color: var(--muted); margin-top: 4px; }
+  .field input[type="range"] {
+    width: 100%; accent-color: var(--accent); cursor: pointer; margin-top: 4px;
+    background: none; border: none; padding: 0;
+  }
+
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .color-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .color-row input[type="color"] {
+    width: 40px; height: 38px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface2);
+    cursor: pointer; padding: 2px; flex-shrink: 0;
+  }
+  .color-row input[type="text"] {
+    flex: 1;
+    width: auto !important;
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: none; border-radius: 10px; padding: 12px 24px;
+    font-size: .95rem; font-weight: 600; cursor: pointer; transition: all .2s;
+    width: 100%; letter-spacing: .2px;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-h); transform: translateY(-1px); }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; transform: none !important; }
+
+  /* ── Spinner ── */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Error / info ── */
+  .alert {
+    border-radius: 8px; padding: 10px 14px; font-size: .85rem; margin-top: 14px;
+  }
+  .alert-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: #fca5a5; }
+  .alert-info  { background: rgba(91,106,245,.1); border: 1px solid rgba(91,106,245,.3); color: #a5b4fc; }
+
+  /* ── Output panel ── */
+  #output-section { display: none; }
+
+  .video-wrap {
+    position: relative;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    /* enforce 9:16 */
+    aspect-ratio: 9/16;
+    max-height: 480px;
+    margin: 0 auto;
+    width: auto;
+  }
+  .video-wrap video {
+    width: 100%; height: 100%; object-fit: contain; display: block;
+  }
+
+  .video-meta {
+    margin-top: 10px;
+    font-size: .8rem;
+    color: var(--muted);
+  }
+  .video-meta span { color: var(--text); font-weight: 500; }
+
+  .clip-order-list {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+  }
+  .clip-order-list .co-badge {
+    font-size: .72rem; padding: 2px 8px; border-radius: 999px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .co-badge.is-hook  { border-color: #fbbf24; color: #fbbf24; }
+  .co-badge.is-final { border-color: #22c55e; color: #22c55e; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+  /* ── Variation section ── */
+  #variation-section { margin-top: 20px; }
+
+  .full-width { grid-column: 1 / -1; }
+
+  /* hidden utility */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Video <span>Compositor</span></h1>
+  <p>Assemble, shuffle &amp; export vertical video reels</p>
+</header>
+
+<div class="layout">
+
+  <!-- ══ LEFT: setup panel ══ -->
+  <div>
+
+    <!-- Video clips -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">Video Clips</div>
+
+      <div id="drop-zone">
+        <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M15 10l4.553-2.07A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3
+               8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+        </svg>
+        <p>Drag &amp; drop clips here or <strong>click to browse</strong></p>
+        <p style="margin-top:5px;font-size:.78rem">
+          Files with <strong>hook</strong> in the name go first &nbsp;·&nbsp;
+          <strong>final</strong> goes last
+        </p>
+      </div>
+      <input type="file" id="clip-input" accept="video/*" multiple class="hidden">
+
+      <div id="clips-list"></div>
+    </div>
+
+    <!-- Audio -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">Background Music</div>
+      <div class="audio-row">
+        <label for="audio-input">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 19V6l12-3v13M9 19a2 2 0 11-4 0 2 2 0 014 0zm12 0a2 2 0
+                 11-4 0 2 2 0 014 0z"/>
+          </svg>
+          Choose audio
+        </label>
+        <span id="audio-name">No file selected</span>
+      </div>
+      <input type="file" id="audio-input" accept="audio/*,video/*" class="hidden">
+      <div class="field" style="margin-top:14px">
+        <label>Music start time (sec)</label>
+        <input type="number" id="music-start" min="0" step="0.1" placeholder="0">
+        <div class="hint">Leave blank to start from beginning</div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">Clip Duration</div>
+      <div class="field" style="margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text);font-weight:normal;text-transform:none;letter-spacing:0">
+          <input type="checkbox" id="use-original-duration" onchange="toggleDurationInput()">
+          Use original clip duration
+        </label>
+      </div>
+      <div class="field">
+        <label>Duration per clip (seconds)</label>
+        <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
+        <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
+      </div>
+    </div>
+
+    <!-- Text overlay -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">Text Overlay <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+
+      <div class="field">
+        <label>Text</label>
+        <textarea id="overlay-text" rows="4" placeholder="Leave blank for no overlay&#10;Press Enter for new lines"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Font</label>
+        <select id="font-select">
+          <option value="">Default (Sans)</option>
+        </select>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Font size (px)</label>
+          <input type="number" id="font-size" value="48" min="12" max="200">
+        </div>
+        <div class="field">
+          <label>Position</label>
+          <select id="text-position">
+            <option value="top" selected>Top</option>
+            <option value="upper_center">Upper Center</option>
+            <option value="center">Center</option>
+            <option value="lower_center">Lower Center</option>
+            <option value="bottom">Bottom</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Offset (px)</label>
+        <input type="number" id="text-offset" value="0" placeholder="0">
+        <div class="hint">Positive = down &nbsp;·&nbsp; Negative = up</div>
+      </div>
+
+      <div class="field">
+        <label>Text Color</label>
+        <div class="color-row">
+          <input type="color" id="text-color-picker" value="#ffffff">
+          <input type="text"  id="text-color-hex"    value="#ffffff">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Text Style</label>
+        <select id="text-style" onchange="updateTextStyle()">
+          <option value="box" selected>Box — solid background</option>
+          <option value="shadow">Shadow — drop shadow</option>
+          <option value="none">None — plain text</option>
+        </select>
+      </div>
+
+      <div id="box-controls">
+        <div class="field">
+          <label>Box Color</label>
+          <div class="color-row">
+            <input type="color" id="box-color-picker" value="#000000">
+            <input type="text"  id="box-color-hex"    value="#000000">
+          </div>
+        </div>
+        <div class="field">
+          <label>Box Opacity — <span id="box-opacity-value">60</span>%</label>
+          <input type="range" id="box-opacity" min="0" max="100" value="60">
+        </div>
+      </div>
+    </div>
+
+    <!-- Create button -->
+    <button class="btn btn-primary" id="create-btn" onclick="createVideo()">
+      Create Video
+    </button>
+    <div id="create-error"></div>
+
+  </div><!-- /left -->
+
+  <!-- ══ RIGHT: output panel ══ -->
+  <div id="output-section">
+
+    <div class="card">
+      <div class="card-title">Output Preview</div>
+
+      <div class="video-wrap">
+        <video id="output-video" controls playsinline></video>
+      </div>
+
+      <div class="video-meta" id="video-meta"></div>
+
+      <hr class="divider">
+
+      <!-- New variation -->
+      <div id="variation-section">
+        <div class="card-title">New Variation</div>
+        <p style="font-size:.83rem;color:var(--muted);margin-bottom:14px">
+          Middle clips will be reshuffled with new random durations.
+        </p>
+
+        <div class="field">
+          <label>Override text overlay (leave blank to keep current)</label>
+          <textarea id="variation-text" rows="3" placeholder="New text or leave blank&#10;Press Enter for new lines"></textarea>
+        </div>
+
+        <button class="btn btn-secondary" id="variation-btn" onclick="createVariation()">
+          New Variation
+        </button>
+        <div id="variation-error"></div>
+      </div>
+    </div>
+
+  </div><!-- /right -->
+
+</div><!-- /layout -->
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let uploadedClips = [];
+  let audioFile     = null;
+  let sessionId     = null;
+
+  // ── Load fonts ────────────────────────────────────────────────────────────
+  async function loadFonts() {
+    try {
+      const res   = await fetch('/fonts');
+      const fonts = await res.json();
+      const sel   = document.getElementById('font-select');
+      fonts.forEach(f => {
+        const opt       = document.createElement('option');
+        opt.value       = f;
+        opt.textContent = f.replace(/\.(ttf|otf)$/i, '').replace(/-/g, ' ');
+        sel.appendChild(opt);
+      });
+    } catch (e) { /* ignore — fonts dir may be empty */ }
+  }
+  loadFonts();
+
+  // ── Color picker sync (text color) ───────────────────────────────────────
+  const picker = document.getElementById('text-color-picker');
+  const hexInp = document.getElementById('text-color-hex');
+  picker.addEventListener('input', () => { hexInp.value = picker.value; });
+  hexInp.addEventListener('input', () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(hexInp.value)) picker.value = hexInp.value;
+  });
+
+  // ── Box color picker sync ─────────────────────────────────────────────────
+  const boxPicker = document.getElementById('box-color-picker');
+  const boxHex    = document.getElementById('box-color-hex');
+  boxPicker.addEventListener('input', () => { boxHex.value = boxPicker.value; });
+  boxHex.addEventListener('input', () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(boxHex.value)) boxPicker.value = boxHex.value;
+  });
+
+  // ── Box opacity display ───────────────────────────────────────────────────
+  document.getElementById('box-opacity').addEventListener('input', e => {
+    document.getElementById('box-opacity-value').textContent = e.target.value;
+  });
+
+  // ── Text style show/hide ──────────────────────────────────────────────────
+  function updateTextStyle() {
+    const isBox = document.getElementById('text-style').value === 'box';
+    document.getElementById('box-controls').style.display = isBox ? 'block' : 'none';
+  }
+
+  // ── Duration toggle ───────────────────────────────────────────────────────
+  function toggleDurationInput() {
+    const checked = document.getElementById('use-original-duration').checked;
+    document.getElementById('duration-range').disabled = checked;
+  }
+
+  // ── Drop zone ─────────────────────────────────────────────────────────────
+  const dropZone  = document.getElementById('drop-zone');
+  const clipInput = document.getElementById('clip-input');
+
+  dropZone.addEventListener('click', () => clipInput.click());
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    addClips(Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('video/')));
+  });
+  clipInput.addEventListener('change', e => { addClips(Array.from(e.target.files)); e.target.value = ''; });
+
+  function addClips(files) {
+    const names = new Set(uploadedClips.map(c => c.file.name));
+    files.forEach(f => {
+      if (!names.has(f.name)) uploadedClips.push({ file: f, displayName: f.name });
+    });
+    renderClips();
+  }
+
+  function removeClip(idx) {
+    uploadedClips.splice(idx, 1);
+    renderClips();
+  }
+
+  function clipLabel(name) {
+    const n = name.toLowerCase();
+    if (n.includes('hook'))  return { text: 'HOOK',  cls: 'badge-hook'  };
+    if (n.includes('final')) return { text: 'FINAL', cls: 'badge-final' };
+    const stem = name.replace(/\.[^.]+$/, '');
+    if (/^\d+$/.test(stem))  return { text: `#${stem}`, cls: 'badge-num' };
+    return { text: 'CLIP', cls: 'badge-mid' };
+  }
+
+  function renderClips() {
+    const list = document.getElementById('clips-list');
+    if (!uploadedClips.length) { list.innerHTML = ''; return; }
+    list.innerHTML = uploadedClips.map((c, i) => {
+      const lbl = clipLabel(c.displayName);
+      return `<div class="clip-row" data-idx="${i}">
+        <span class="badge ${lbl.cls}">${lbl.text}</span>
+        <span class="clip-name" title="${c.displayName}" onclick="startEdit(${i})">${c.displayName}</span>
+        <button class="clip-remove" onclick="removeClip(${i})" title="Remove">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  function startEdit(idx) {
+    const row = document.querySelector(`.clip-row[data-idx="${idx}"]`);
+    if (!row) return;
+    const span = row.querySelector('.clip-name');
+    const clip = uploadedClips[idx];
+
+    const extMatch = clip.displayName.match(/(\.[^.]+)$/);
+    const ext      = extMatch ? extMatch[1] : '';
+    const nameNoExt = ext ? clip.displayName.slice(0, -ext.length) : clip.displayName;
+
+    span.style.display = 'none';
+    const input = document.createElement('input');
+    input.type      = 'text';
+    input.className = 'clip-name-input';
+    input.value     = nameNoExt;
+    row.insertBefore(input, span.nextSibling);
+    input.focus();
+    input.select();
+
+    let committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      const newStem = (input.value.trim() || nameNoExt).replace(/[/\\]/g, '_');
+      clip.displayName = newStem + ext;
+      input.remove();
+      span.style.display = '';
+      span.textContent   = clip.displayName;
+      span.title         = clip.displayName;
+      const lbl = clipLabel(clip.displayName);
+      const badge = row.querySelector('.badge');
+      badge.className  = `badge ${lbl.cls}`;
+      badge.textContent = lbl.text;
+    }
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { input.value = nameNoExt; input.blur(); }
+    });
+  }
+
+  // ── Audio upload ──────────────────────────────────────────────────────────
+  document.getElementById('audio-input').addEventListener('change', e => {
+    audioFile = e.target.files[0] || null;
+    document.getElementById('audio-name').textContent = audioFile ? audioFile.name : 'No file selected';
+  });
+
+  // ── Create video ──────────────────────────────────────────────────────────
+  async function createVideo() {
+    clearError('create-error');
+
+    if (!uploadedClips.length) return showError('create-error', 'Add at least one video clip.');
+    if (!audioFile)             return showError('create-error', 'Choose a background music file.');
+
+    const fd = new FormData();
+    uploadedClips.forEach(c => fd.append('clips', c.file));
+    fd.append('clip_names', JSON.stringify(uploadedClips.map(c => c.displayName)));
+    fd.append('audio',          audioFile);
+    fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
+    fd.append('use_original_duration', document.getElementById('use-original-duration').checked);
+    fd.append('music_start',    document.getElementById('music-start').value);
+    fd.append('text',           document.getElementById('overlay-text').value);
+    fd.append('font',           document.getElementById('font-select').value);
+    fd.append('font_size',      document.getElementById('font-size').value);
+    fd.append('position',    document.getElementById('text-position').value);
+    fd.append('offset',      document.getElementById('text-offset').value || '0');
+    fd.append('color',       hexInp.value);
+    fd.append('style',       document.getElementById('text-style').value);
+    fd.append('box_color',   boxHex.value);
+    fd.append('box_opacity', document.getElementById('box-opacity').value);
+
+    setLoading('create-btn', true, 'Processing…');
+    try {
+      const res  = await fetch('/compose', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) {
+        sessionId = data.session_id;
+        showOutput(data.output, data.total_duration, data.clip_order, data.warning);
+      } else {
+        showError('create-error', data.error);
+      }
+    } catch (e) {
+      showError('create-error', e.message);
+    } finally {
+      setLoading('create-btn', false, 'Create Video');
+    }
+  }
+
+  // ── New variation ─────────────────────────────────────────────────────────
+  async function createVariation() {
+    if (!sessionId) return;
+    clearError('variation-error');
+
+    const variText = document.getElementById('variation-text').value.trim();
+    const payload  = {
+      session_id: sessionId,
+      text:       variText || document.getElementById('overlay-text').value,
+      use_original_duration: document.getElementById('use-original-duration').checked,
+      font:       document.getElementById('font-select').value,
+      font_size:  parseInt(document.getElementById('font-size').value, 10),
+      position:    document.getElementById('text-position').value,
+      offset:      parseInt(document.getElementById('text-offset').value, 10) || 0,
+      color:       hexInp.value,
+      style:       document.getElementById('text-style').value,
+      box_color:   boxHex.value,
+      box_opacity: parseInt(document.getElementById('box-opacity').value, 10),
+    };
+
+    setLoading('variation-btn', true, 'Rendering…');
+    try {
+      const res  = await fetch('/variation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showOutput(data.output, data.total_duration, data.clip_order, data.warning);
+      } else {
+        showError('variation-error', data.error);
+      }
+    } catch (e) {
+      showError('variation-error', e.message);
+    } finally {
+      setLoading('variation-btn', false, 'New Variation');
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function showOutput(filename, totalDuration, clipOrder, warning) {
+    const sec  = document.getElementById('output-section');
+    const vid  = document.getElementById('output-video');
+    const meta = document.getElementById('video-meta');
+
+    // Cache-bust so the same element picks up a new file
+    vid.src = `/output/${filename}?t=${Date.now()}`;
+    vid.load();
+
+    const orderHtml = (clipOrder || []).map(name => {
+      const n = name.toLowerCase();
+      const cls = n.includes('hook') ? 'is-hook' : n.includes('final') ? 'is-final' : '';
+      return `<span class="co-badge ${cls}">${name}</span>`;
+    }).join('');
+
+    const warnHtml = warning
+      ? `<div class="alert alert-error" style="margin-top:10px">⚠️ ${warning}</div>`
+      : '';
+
+    meta.innerHTML = `
+      <div>Duration: <span>${totalDuration}s</span> &nbsp;·&nbsp; File: <span>${filename}</span></div>
+      ${orderHtml ? `<div class="clip-order-list" style="margin-top:8px">${orderHtml}</div>` : ''}
+      ${warnHtml}
+    `;
+
+    sec.style.display = 'block';
+    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function setLoading(btnId, loading, label) {
+    const btn = document.getElementById(btnId);
+    btn.disabled = loading;
+    btn.innerHTML = loading
+      ? `<div class="spinner"></div>${label}`
+      : label;
+  }
+
+  function showError(containerId, msg) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = `<div class="alert alert-error">${msg}</div>`;
+  }
+
+  function clearError(containerId) {
+    document.getElementById(containerId).innerHTML = '';
+  }
+</script>
+</body>
+</html>

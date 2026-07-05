@@ -168,7 +168,26 @@ def stripe_webhook():
         cs    = event["data"]["object"]
         email = (cs.get("customer_details") or {}).get("email") or cs.get("customer_email")
         if email:
-            upsert_user_paid(email.strip().lower())
+            email = email.strip().lower()
+            upsert_user_paid(email)
+
+            token   = secrets.token_urlsafe(32)
+            expires = datetime.now(timezone.utc) + timedelta(hours=1)
+            set_magic_token(email, token, expires)
+
+            magic_url = url_for("magic_login", token=token, _external=True)
+            try:
+                resend.Emails.send({
+                    "from":    RESEND_FROM,
+                    "to":      [email],
+                    "subject": "Your Video Compositor login link",
+                    "html": (
+                        "<p>Thank you for your purchase! Click the link below to log in. It expires in 1 hour.</p>"
+                        f'<p><a href="{magic_url}">{magic_url}</a></p>'
+                    ),
+                })
+            except Exception as exc:
+                print(f"[webhook] failed to send magic link to {email}: {exc}")
 
     return jsonify({"received": True})
 

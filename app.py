@@ -166,7 +166,8 @@ def stripe_webhook():
 
     if event["type"] == "checkout.session.completed":
         cs    = event["data"]["object"]
-        email = (cs.get("customer_details") or {}).get("email") or cs.get("customer_email")
+        customer_details = cs.customer_details if hasattr(cs, "customer_details") else None
+        email = (customer_details.email if customer_details else None) or (cs.customer_email if hasattr(cs, "customer_email") else None)
         if email:
             email = email.strip().lower()
             upsert_user_paid(email)

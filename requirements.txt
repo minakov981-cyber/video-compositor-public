@@ -1,6 +1,6 @@
 flask>=3.0.0
 gunicorn
 Pillow
-stripe
+stripe>=15.0.0
 psycopg2-binary
 resend

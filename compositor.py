@@ -34,7 +34,13 @@ def _detect_ffmpeg():
 
 FFMPEG, FFPROBE, DRAWTEXT_SUPPORTED = _detect_ffmpeg()
 
-# Safe-zone preset y positions (top of text block, 1080×1920 canvas)
+OUTPUT_FORMATS = {
+    "9:16": (1080, 1920),
+    "16:9": (1920, 1080),
+    "1:1":  (1080, 1080),
+}
+
+# Safe-zone preset y positions (top of text block, reference canvas 1080×1920)
 POSITION_Y = {
     "top":          380,
     "upper_center": 650,
@@ -145,7 +151,7 @@ def _measure_text_width(text, font_size, font_path=None):
     return int(len(text) * font_size * 0.55)
 
 
-def _build_drawtext_filters(text_options):
+def _build_drawtext_filters(text_options, canvas_w=1080, canvas_h=1920):
     """Return (filter_list, warning_or_None).
 
     Box mode: one drawbox covering the entire text block (all lines), sized to
@@ -155,6 +161,9 @@ def _build_drawtext_filters(text_options):
 
     Shadow mode: drawtext with shadow params, no box.
     None mode:   plain drawtext.
+
+    Y positions are scaled from the 1920-height reference to canvas_h.
+    Box x-centering uses canvas_w.
     """
     if not text_options or not text_options.get("text", "").strip():
         return [], None
@@ -172,7 +181,11 @@ def _build_drawtext_filters(text_options):
     text_color = text_options.get("color", "white")
     if text_color.startswith("#"):
         text_color = "0x" + text_color[1:]
-    base_y       = POSITION_Y.get(text_options.get("position", "top"), 380) + int(text_options.get("offset", 0))
+
+    # Scale preset y from the 1920-height reference canvas to the actual canvas_h
+    ref_y  = POSITION_Y.get(text_options.get("position", "top"), 380)
+    base_y = int(ref_y * canvas_h / 1920) + int(text_options.get("offset", 0))
+
     line_spacing = int(font_size * 1.3)
     style        = text_options.get("style", "box")
 
@@ -191,14 +204,13 @@ def _build_drawtext_filters(text_options):
             box_color = "0x" + box_color[1:]
         box_opacity = float(text_options.get("box_opacity", 60)) / 100.0
 
-        # Measure each line's rendered width; use the longest for the single box
         widths = [_measure_text_width(line, font_size, custom_font_path) for line in lines]
         max_w = max(widths)
 
-        BOX_PAD_X = 20   # horizontal padding per side
-        BOX_PAD_Y = 20   # vertical padding per side
+        BOX_PAD_X = 20
+        BOX_PAD_Y = 20
         box_w = max_w + 2 * BOX_PAD_X
-        box_x = (1080 - max_w) // 2 - BOX_PAD_X   # centered on 1080-wide canvas
+        box_x = (canvas_w - max_w) // 2 - BOX_PAD_X   # centered on canvas_w
         box_h = (len(lines) - 1) * line_spacing + font_size + 2 * BOX_PAD_Y
         box_y = base_y - BOX_PAD_Y
 
@@ -229,6 +241,32 @@ def _build_drawtext_filters(text_options):
     return filters, None
 
 
+def _build_crop_vf(w, h):
+    """Scale-and-crop filter string for -vf (crop-to-fill mode)."""
+    return f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
+
+
+def _build_blur_filter_complex(w, h, drawtext_filters=None):
+    """filter_complex string for fit-with-blur mode.
+
+    Splits the input into two streams:
+    - background: scaled/cropped to w×h then heavily blurred
+    - foreground: scaled to fit within w×h (letterboxed), overlaid centred on bg
+    Optional drawtext filters are chained after the overlay.
+    """
+    fc = (
+        f"[0:v]split=2[bg_in][fg_in];"
+        f"[bg_in]scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},boxblur=20:3[bg_blur];"
+        f"[fg_in]scale={w}:{h}:force_original_aspect_ratio=decrease[fg_fit];"
+        f"[bg_blur][fg_fit]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2"
+    )
+    if drawtext_filters:
+        fc += "," + ",".join(drawtext_filters)
+    fc += "[vout]"
+    return fc
+
+
 def _split_middle_clips(clips):
     """Return (numbered_sorted, mixed) from a list of middle clip paths.
 
@@ -248,7 +286,9 @@ def _split_middle_clips(clips):
 
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
-                  variation=False, music_start=0.0, use_original_duration=False):
+                  variation=False, music_start=0.0, use_original_duration=False,
+                  output_format="9:16", fit_mode="crop"):
+    w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
     min_dur, max_dur = parse_duration_range(duration_range)
 
     if variation:
@@ -268,12 +308,12 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
     if not audio:
         raise ValueError("No audio file provided")
 
-    # Resolve drawtext filters once — applied to every clip except "final"
-    drawtext_filters, text_warning = _build_drawtext_filters(text_options)
+    # Resolve drawtext filters once — scaled to target canvas dimensions
+    drawtext_filters, text_warning = _build_drawtext_filters(
+        text_options, canvas_w=w, canvas_h=h
+    )
 
-    # ── Step 1: process each clip to normalised 1080×1920 silent segments ──
-    BASE_VF = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
-
+    # ── Step 1: process each clip to normalised w×h silent segments ──
     processed = []
     for i, clip_path in enumerate(ordered):
         clip_dur = get_video_duration(clip_path)
@@ -293,21 +333,29 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             apply_trim = True
 
         # Text overlay is skipped on the "final" clip
-        vf = BASE_VF if (is_final or not drawtext_filters) else BASE_VF + "," + ",".join(drawtext_filters)
+        active_dt = [] if (is_final or not drawtext_filters) else drawtext_filters
 
         out = os.path.join(temp_dir, f"clip_{i:03d}.mp4")
-        cmd = [FFMPEG, "-y", "-i", clip_path]
-        if apply_trim:
-            cmd += ["-t", str(actual_dur)]
-        cmd += [
-            "-vf", vf,
-            "-an",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-pix_fmt", "yuv420p",
-            "-r", "30",
-            out,
-        ]
+
+        if fit_mode == "blur":
+            fc = _build_blur_filter_complex(w, h, active_dt)
+            cmd = [FFMPEG, "-y", "-i", clip_path,
+                   "-filter_complex", fc,
+                   "-map", "[vout]"]
+            if apply_trim:
+                cmd += ["-t", str(actual_dur)]
+            cmd += ["-an", "-c:v", "libx264", "-preset", "fast",
+                    "-pix_fmt", "yuv420p", "-r", "30", out]
+        else:  # crop (default)
+            vf = _build_crop_vf(w, h)
+            if active_dt:
+                vf += "," + ",".join(active_dt)
+            cmd = [FFMPEG, "-y", "-i", clip_path]
+            if apply_trim:
+                cmd += ["-t", str(actual_dur)]
+            cmd += ["-vf", vf, "-an", "-c:v", "libx264", "-preset", "fast",
+                    "-pix_fmt", "yuv420p", "-r", "30", out]
+
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError(

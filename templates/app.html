@@ -217,8 +217,7 @@
     background: #000;
     border-radius: 10px;
     overflow: hidden;
-    /* enforce 9:16 */
-    aspect-ratio: 9/16;
+    aspect-ratio: 9/16;   /* updated dynamically by JS when format changes */
     max-height: 480px;
     margin: 0 auto;
     width: auto;
@@ -251,6 +250,25 @@
   #variation-section { margin-top: 20px; }
 
   .full-width { grid-column: 1 / -1; }
+
+  /* ── Format / fit-mode segmented buttons ── */
+  .seg-group { display: flex; flex-direction: column; gap: 6px; }
+  .seg-btn {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 14px;
+    cursor: pointer; font-size: .85rem; color: var(--text);
+    text-align: left; transition: border-color .15s, background .15s; width: 100%;
+  }
+  .seg-btn:hover { border-color: var(--accent); }
+  .seg-btn.active {
+    border-color: var(--accent); background: rgba(91,106,245,.12); color: var(--accent);
+  }
+  .seg-btn .seg-icon { font-size: 1.1rem; line-height: 1; flex-shrink: 0; }
+  .seg-btn .seg-info { display: flex; flex-direction: column; }
+  .seg-btn .seg-label { font-weight: 600; font-size: .85rem; }
+  .seg-btn .seg-sub   { font-size: .72rem; color: var(--muted); }
+  .seg-btn.active .seg-sub { color: rgba(165,180,252,.7); }
 
   /* hidden utility */
   .hidden { display: none !important; }
@@ -324,6 +342,59 @@
         <label>Duration per clip (seconds)</label>
         <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
         <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
+      </div>
+    </div>
+
+    <!-- Output format & fit mode -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title">Output Format</div>
+      <div class="field-row" style="align-items:start">
+
+        <div class="field" style="margin-bottom:0">
+          <label>Format</label>
+          <div class="seg-group" id="format-group">
+            <button type="button" class="seg-btn active" data-value="9:16" onclick="selectFormat(this)">
+              <span class="seg-icon">▯</span>
+              <span class="seg-info">
+                <span class="seg-label">9:16 &nbsp;Vertical</span>
+                <span class="seg-sub">TikTok / Reels / Shorts</span>
+              </span>
+            </button>
+            <button type="button" class="seg-btn" data-value="16:9" onclick="selectFormat(this)">
+              <span class="seg-icon">▭</span>
+              <span class="seg-info">
+                <span class="seg-label">16:9 &nbsp;Horizontal</span>
+                <span class="seg-sub">YouTube</span>
+              </span>
+            </button>
+            <button type="button" class="seg-btn" data-value="1:1" onclick="selectFormat(this)">
+              <span class="seg-icon">□</span>
+              <span class="seg-info">
+                <span class="seg-label">1:1 &nbsp;Square</span>
+                <span class="seg-sub">Instagram feed</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div class="field" style="margin-bottom:0">
+          <label>Fit Mode</label>
+          <div class="seg-group" id="fitmode-group">
+            <button type="button" class="seg-btn active" data-value="crop" onclick="selectFitMode(this)">
+              <span class="seg-info">
+                <span class="seg-label">Crop to fill</span>
+                <span class="seg-sub">Scales &amp; crops to fill frame</span>
+              </span>
+            </button>
+            <button type="button" class="seg-btn" data-value="blur" onclick="selectFitMode(this)">
+              <span class="seg-info">
+                <span class="seg-label">Fit with blur</span>
+                <span class="seg-sub">Letterbox on blurred background</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -448,6 +519,35 @@
   let uploadedClips = [];
   let audioFile     = null;
   let sessionId     = null;
+
+  // ── Format / fit-mode selectors ───────────────────────────────────────────
+  function selectFormat(btn) {
+    document.querySelectorAll('#format-group .seg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    updateVideoWrapAspectRatio(btn.dataset.value);
+  }
+
+  function selectFitMode(btn) {
+    document.querySelectorAll('#fitmode-group .seg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  function getSelectedFormat() {
+    const btn = document.querySelector('#format-group .seg-btn.active');
+    return btn ? btn.dataset.value : '9:16';
+  }
+
+  function getSelectedFitMode() {
+    const btn = document.querySelector('#fitmode-group .seg-btn.active');
+    return btn ? btn.dataset.value : 'crop';
+  }
+
+  function updateVideoWrapAspectRatio(format) {
+    const wrap = document.querySelector('.video-wrap');
+    if (!wrap) return;
+    const ratios = { '9:16': '9/16', '16:9': '16/9', '1:1': '1/1' };
+    wrap.style.aspectRatio = ratios[format] || '9/16';
+  }
 
   // ── Load fonts ────────────────────────────────────────────────────────────
   async function loadFonts() {
@@ -609,6 +709,8 @@
     fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
     fd.append('use_original_duration', document.getElementById('use-original-duration').checked);
     fd.append('music_start',    document.getElementById('music-start').value);
+    fd.append('output_format',  getSelectedFormat());
+    fd.append('fit_mode',       getSelectedFitMode());
     fd.append('text',           document.getElementById('overlay-text').value);
     fd.append('font',           document.getElementById('font-select').value);
     fd.append('font_size',      document.getElementById('font-size').value);
@@ -654,6 +756,8 @@
       style:       document.getElementById('text-style').value,
       box_color:   boxHex.value,
       box_opacity: parseInt(document.getElementById('box-opacity').value, 10),
+      output_format: getSelectedFormat(),
+      fit_mode:      getSelectedFitMode(),
     };
 
     setLoading('variation-btn', true, 'Rendering…');
@@ -681,6 +785,8 @@
     const sec  = document.getElementById('output-section');
     const vid  = document.getElementById('output-video');
     const meta = document.getElementById('video-meta');
+
+    updateVideoWrapAspectRatio(getSelectedFormat());
 
     // Cache-bust so the same element picks up a new file
     vid.src = `/output/${filename}?t=${Date.now()}`;

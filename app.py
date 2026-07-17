@@ -308,6 +308,8 @@ def compose():
         "duration_range":       duration_range,
         "music_start":          music_start,
         "use_original_duration": use_original_duration,
+        "output_format":        request.form.get("output_format", "9:16"),
+        "fit_mode":             request.form.get("fit_mode", "crop"),
         "variation_count":      0,
     }
 
@@ -326,6 +328,10 @@ def variation():
     text_opts = _text_opts_from_json(data)
     if "use_original_duration" in data:
         sessions[session_id]["use_original_duration"] = bool(data["use_original_duration"])
+    if "output_format" in data:
+        sessions[session_id]["output_format"] = data["output_format"]
+    if "fit_mode" in data:
+        sessions[session_id]["fit_mode"] = data["fit_mode"]
     return _run_composition(session_id, text_opts, variation=True)
 
 
@@ -352,6 +358,8 @@ def _run_composition(session_id, text_opts, variation):
             variation=variation,
             music_start=s.get("music_start", 0.0),
             use_original_duration=s.get("use_original_duration", False),
+            output_format=s.get("output_format", "9:16"),
+            fit_mode=s.get("fit_mode", "crop"),
             temp_dir=temp_dir,
         )
         resp = {

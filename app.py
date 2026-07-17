@@ -283,10 +283,11 @@ def compose():
         saved_clips.append(dest)
 
     audio_file = request.files.get("audio")
-    if not audio_file or audio_file.filename == "":
-        return jsonify({"success": False, "error": "No audio file uploaded"}), 400
-    audio_path = os.path.join(session_dir, audio_file.filename)
-    audio_file.save(audio_path)
+    if audio_file and audio_file.filename:
+        audio_path = os.path.join(session_dir, audio_file.filename)
+        audio_file.save(audio_path)
+    else:
+        audio_path = None
 
     duration_range = request.form.get("duration_range", "2")
     text_opts      = _text_opts_from_form(request.form)

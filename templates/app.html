@@ -309,7 +309,7 @@
 
     <!-- Audio -->
     <div class="card" style="margin-bottom:20px">
-      <div class="card-title">Background Music</div>
+      <div class="card-title">Background Music <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
       <div class="audio-row">
         <label for="audio-input">
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -700,7 +700,6 @@
     clearError('create-error');
 
     if (!uploadedClips.length) return showError('create-error', 'Add at least one video clip.');
-    if (!audioFile)             return showError('create-error', 'Choose a background music file.');
 
     const fd = new FormData();
     uploadedClips.forEach(c => fd.append('clips', c.file));

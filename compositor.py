@@ -305,8 +305,6 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
     if not ordered:
         raise ValueError("No clips provided")
-    if not audio:
-        raise ValueError("No audio file provided")
 
     # Resolve drawtext filters once — scaled to target canvas dimensions
     drawtext_filters, text_warning = _build_drawtext_filters(
@@ -371,25 +369,36 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
     total_duration = sum(d for _, d in processed)
 
-    # ── Step 3: concatenate clips + mix in music ──
+    # ── Step 3: concatenate clips, optionally mix in music ──
     # (drawtext was already baked into each clip in Step 1)
-    audio_input = []
-    if music_start and music_start > 0:
-        audio_input = ["-ss", str(music_start)]
-    audio_input += ["-i", audio]
+    if audio:
+        audio_input = []
+        if music_start and music_start > 0:
+            audio_input = ["-ss", str(music_start)]
+        audio_input += ["-i", audio]
 
-    cmd = [
-        FFMPEG, "-y",
-        "-f", "concat", "-safe", "0", "-i", concat_file,
-        *audio_input,
-        "-t", str(total_duration),
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
-        output_path,
-    ]
+        cmd = [
+            FFMPEG, "-y",
+            "-f", "concat", "-safe", "0", "-i", concat_file,
+            *audio_input,
+            "-t", str(total_duration),
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            output_path,
+        ]
+    else:
+        cmd = [
+            FFMPEG, "-y",
+            "-f", "concat", "-safe", "0", "-i", concat_file,
+            "-t", str(total_duration),
+            "-map", "0:v:0",
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-an",
+            output_path,
+        ]
 
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:

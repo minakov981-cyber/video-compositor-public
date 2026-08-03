@@ -143,6 +143,23 @@
     font-size: 2.5rem;
     margin-bottom: 16px;
   }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0 16px;
+    color: var(--muted);
+    font-size: .78rem;
+  }
+
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
 </style>
 </head>
 <body>
@@ -158,14 +175,34 @@
     <h2>Check your inbox</h2>
     <p class="sub">
       We sent a login link to <strong>{{ email }}</strong>.
-      Click it to sign in — it expires in 1 hour.
+      Click it to sign in — it expires in 24 hours.
     </p>
     <p class="sub">Don't see it? Check your spam folder.</p>
+
+  {% elif forgot %}
+
+    <h2>Reset password</h2>
+    <p class="sub">Enter your email and we'll send you a magic link to sign in and set a new password.</p>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/forgot">
+      <div class="field">
+        <label for="email">Email address</label>
+        <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+      </div>
+      <button type="submit" class="btn">Send login link</button>
+    </form>
+
+    <div class="footer-link">
+      <a href="/login">Back to sign in</a>
+    </div>
 
   {% else %}
 
     <h2>Sign in</h2>
-    <p class="sub">Enter your email and we'll send you a magic link.</p>
 
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
@@ -176,10 +213,18 @@
         <label for="email">Email address</label>
         <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
       </div>
-      <button type="submit" class="btn">Send login link</button>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="btn">Sign in</button>
     </form>
 
     <div class="footer-link">
+      <a href="/forgot">Forgot password?</a>
+    </div>
+
+    <div class="footer-link" style="margin-top: 12px;">
       Don't have access yet? <a href="/">Buy for $15</a>
     </div>
 

@@ -9,11 +9,12 @@ import resend
 import stripe
 from flask import (Flask, jsonify, redirect, render_template, request,
                    send_from_directory, session, url_for)
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from compositor import compose_video
 from db import (clear_magic_token, get_user, get_user_by_token, init_db,
-                set_magic_token, upsert_user_paid)
+                set_magic_token, set_password, upsert_user_paid)
 
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "output"
@@ -76,9 +77,40 @@ def index():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
+        email    = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+
         if not email or "@" not in email:
             return render_template("login.html", error="Please enter a valid email address.")
+
+        user = get_user(email)
+
+        if not user or not user.get("password_hash"):
+            return render_template("login.html", error="No account found. Check your email for a login link, or use Forgot Password.")
+
+        if not check_password_hash(user["password_hash"], password):
+            return render_template("login.html", error="Incorrect password.")
+
+        if not user["paid"]:
+            return render_template("login.html", error="Please purchase access before logging in.")
+
+        session["email"] = email
+        session.permanent = True
+        app.permanent_session_lifetime = timedelta(days=30)
+        return redirect(url_for("app_page"))
+
+    error = None
+    if request.args.get("error") == "not_paid":
+        error = "Please purchase access before logging in."
+    return render_template("login.html", error=error)
+
+
+@app.route("/forgot", methods=["GET", "POST"])
+def forgot():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        if not email or "@" not in email:
+            return render_template("login.html", forgot=True, error="Please enter a valid email address.")
 
         token   = secrets.token_urlsafe(32)
         expires = datetime.now(timezone.utc) + timedelta(hours=24)
@@ -96,14 +128,11 @@ def login():
                 ),
             })
         except Exception as exc:
-            return render_template("login.html", error=f"Could not send email: {exc}")
+            return render_template("login.html", forgot=True, error=f"Could not send email: {exc}")
 
         return render_template("login.html", sent=True, email=email)
 
-    error = None
-    if request.args.get("error") == "not_paid":
-        error = "Please purchase access before logging in."
-    return render_template("login.html", error=error)
+    return render_template("login.html", forgot=True)
 
 
 @app.route("/magic")
@@ -126,10 +155,40 @@ def magic_login():
         return redirect(url_for("index") + "?error=not_paid")
 
     clear_magic_token(user["email"])
+
+    if not user.get("password_hash"):
+        session["pending_email"] = user["email"]
+        return redirect(url_for("set_password_page"))
+
     session["email"] = user["email"]
     session.permanent = True
     app.permanent_session_lifetime = timedelta(days=30)
     return redirect(url_for("app_page"))
+
+
+@app.route("/set-password", methods=["GET", "POST"])
+def set_password_page():
+    email = session.get("pending_email")
+    if not email:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirm  = request.form.get("confirm", "")
+
+        if len(password) < 8:
+            return render_template("set_password.html", error="Password must be at least 8 characters.")
+        if password != confirm:
+            return render_template("set_password.html", error="Passwords do not match.")
+
+        set_password(email, generate_password_hash(password))
+        session.pop("pending_email", None)
+        session["email"] = email
+        session.permanent = True
+        app.permanent_session_lifetime = timedelta(days=30)
+        return redirect(url_for("app_page"))
+
+    return render_template("set_password.html")
 
 
 @app.route("/logout")

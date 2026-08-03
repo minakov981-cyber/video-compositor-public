@@ -26,14 +26,16 @@ def init_db():
     with _db() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id           SERIAL PRIMARY KEY,
-                email        TEXT UNIQUE NOT NULL,
-                paid         BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                magic_token  TEXT,
-                token_expires TIMESTAMPTZ
+                id            SERIAL PRIMARY KEY,
+                email         TEXT UNIQUE NOT NULL,
+                paid          BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                magic_token   TEXT,
+                token_expires TIMESTAMPTZ,
+                password_hash TEXT
             )
         """)
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
 
 
 def get_user(email: str):
@@ -76,4 +78,12 @@ def clear_magic_token(email: str):
         cur.execute(
             "UPDATE users SET magic_token = NULL, token_expires = NULL WHERE email = %s",
             (email,),
+        )
+
+
+def set_password(email: str, password_hash: str):
+    with _db() as cur:
+        cur.execute(
+            "UPDATE users SET password_hash = %s WHERE email = %s",
+            (password_hash, email),
         )

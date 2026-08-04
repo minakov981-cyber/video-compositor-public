@@ -116,7 +116,7 @@ def forgot():
         expires = datetime.now(timezone.utc) + timedelta(hours=24)
         set_magic_token(email, token, expires)
 
-        magic_url = url_for("magic_login", token=token, _external=True)
+        magic_url = request.host_url.rstrip("/") + url_for("magic_login", token=token)
         try:
             resend.Emails.send({
                 "from":    RESEND_FROM,
@@ -237,7 +237,7 @@ def stripe_webhook():
             expires = datetime.now(timezone.utc) + timedelta(hours=24)
             set_magic_token(email, token, expires)
 
-            magic_url = url_for("magic_login", token=token, _external=True)
+            magic_url = request.host_url.rstrip("/") + url_for("magic_login", token=token)
             try:
                 resend.Emails.send({
                     "from":    RESEND_FROM,

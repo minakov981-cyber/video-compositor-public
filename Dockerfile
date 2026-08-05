@@ -4,6 +4,8 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     fontconfig \
     libfreetype6 \
+    build-essential \
+    pkg-config \
     libaubio-dev \
     && rm -rf /var/lib/apt/lists/*
 

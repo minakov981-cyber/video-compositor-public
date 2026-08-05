@@ -5,13 +5,6 @@ import random
 import re
 import shutil
 import subprocess
-import tempfile
-
-try:
-    import aubio as _aubio
-    _AUBIO_AVAILABLE = True
-except ImportError:
-    _AUBIO_AVAILABLE = False
 
 
 def _detect_ffmpeg():
@@ -60,60 +53,94 @@ FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
 
 def detect_beats(audio_path, offset_sec=0.0):
-    """Return beat timestamps in seconds relative to video start (i.e. after offset_sec).
+    """Return beat timestamps in seconds relative to video start.
 
-    Extracts audio via ffmpeg starting at offset_sec, feeds mono 44100 Hz PCM to
-    aubio.tempo, then checks for a stable tempo before returning.
-    Returns [] if aubio is unavailable, extraction fails, or tempo is unstable.
+    Extracts mono 44100 Hz PCM via ffmpeg pipe, computes RMS energy onsets,
+    estimates BPM via median inter-onset interval, then returns a regular beat
+    grid anchored to the first detected onset.
+    Returns [] if extraction fails or tempo is unstable/out of range.
     """
-    if not _AUBIO_AVAILABLE:
-        return []
-
-    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
-
-        cmd = [FFMPEG, "-y"]
-        if offset_sec > 0:
-            cmd += ["-ss", str(offset_sec)]
-        cmd += ["-i", audio_path, "-ac", "1", "-ar", "44100", "-f", "wav", tmp_path]
-        r = subprocess.run(cmd, capture_output=True)
-        if r.returncode != 0:
-            return []
-
-        hop_s = 256
-        win_s = 512
-        samplerate = 44100
-
-        src   = _aubio.source(tmp_path, samplerate, hop_s)
-        tempo = _aubio.tempo("default", win_s, hop_s, samplerate)
-
-        beats = []
-        while True:
-            samples, read = src()
-            if tempo(samples):
-                beats.append(float(tempo.get_last_s()))
-            if read < hop_s:
-                break
-
-        if len(beats) < 4:
-            return []
-
-        intervals = [beats[i + 1] - beats[i] for i in range(len(beats) - 1)]
-        mean = sum(intervals) / len(intervals)
-        variance = sum((x - mean) ** 2 for x in intervals) / len(intervals)
-        # reject if coefficient of variation > 0.5 (too irregular to be useful)
-        if mean > 0 and (variance ** 0.5) / mean > 0.5:
-            return []
-
-        return beats
-
-    except Exception:
+        import numpy as np
+    except ImportError:
         return []
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+
+    sr = 44100
+    hop = 512
+
+    cmd = [FFMPEG, "-y"]
+    if offset_sec > 0:
+        cmd += ["-ss", str(offset_sec)]
+    cmd += ["-i", audio_path, "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"]
+
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0 or not r.stdout:
+        return []
+
+    audio = np.frombuffer(r.stdout, dtype=np.float32)
+    if len(audio) < sr * 2:
+        return []
+
+    # RMS energy per hop
+    n_frames = len(audio) // hop
+    energy = np.array([
+        np.sqrt(np.mean(audio[i * hop:(i + 1) * hop] ** 2))
+        for i in range(n_frames)
+    ])
+
+    # Onset strength: positive energy flux
+    onset = np.maximum(0, np.diff(energy))
+    if onset.max() == 0:
+        return []
+    onset = onset / onset.max()
+
+    # Peak picking with minimum gap of 0.25 s
+    threshold = onset.mean() + onset.std() * 0.5
+    min_gap = max(1, int(sr * 0.25 / hop))
+    peaks = []
+    i = 0
+    while i < len(onset):
+        if onset[i] > threshold:
+            window_end = min(i + min_gap, len(onset))
+            peak = i + int(np.argmax(onset[i:window_end]))
+            peaks.append(peak)
+            i = peak + min_gap
+        else:
+            i += 1
+
+    if len(peaks) < 4:
+        return []
+
+    # Estimate tempo from median inter-onset interval
+    intervals_sec = np.diff(peaks) * hop / sr
+    median_interval = float(np.median(intervals_sec))
+    if median_interval <= 0:
+        return []
+
+    bpm = 60.0 / median_interval
+    # Normalise to 60–180 BPM range
+    while bpm < 60:
+        bpm *= 2
+        median_interval /= 2
+    while bpm > 180:
+        bpm /= 2
+        median_interval *= 2
+
+    # Reject if inter-onset coefficient of variation is too high
+    cv = float(np.std(intervals_sec) / np.mean(intervals_sec))
+    if cv > 0.4:
+        return []
+
+    # Build regular beat grid anchored at first detected peak
+    first_beat = peaks[0] * hop / sr
+    total_dur = len(audio) / sr
+    beats = []
+    t = first_beat
+    while t < total_dur:
+        beats.append(round(t, 4))
+        t += median_interval
+
+    return beats
 
 
 def get_video_duration(filepath):

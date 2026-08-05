@@ -52,97 +52,6 @@ POSITION_Y = {
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
 
-def detect_beats(audio_path, offset_sec=0.0):
-    """Return beat timestamps in seconds relative to video start.
-
-    Extracts mono 44100 Hz PCM via ffmpeg pipe, computes RMS energy onsets,
-    estimates BPM via median inter-onset interval, then returns a regular beat
-    grid anchored to the first detected onset.
-    Returns [] if extraction fails or tempo is unstable/out of range.
-    """
-    try:
-        import numpy as np
-    except ImportError:
-        return []
-
-    sr = 44100
-    hop = 512
-
-    cmd = [FFMPEG, "-y"]
-    if offset_sec > 0:
-        cmd += ["-ss", str(offset_sec)]
-    cmd += ["-i", audio_path, "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"]
-
-    r = subprocess.run(cmd, capture_output=True)
-    if r.returncode != 0 or not r.stdout:
-        return []
-
-    audio = np.frombuffer(r.stdout, dtype=np.float32)
-    if len(audio) < sr * 2:
-        return []
-
-    # RMS energy per hop
-    n_frames = len(audio) // hop
-    energy = np.array([
-        np.sqrt(np.mean(audio[i * hop:(i + 1) * hop] ** 2))
-        for i in range(n_frames)
-    ])
-
-    # Onset strength: positive energy flux
-    onset = np.maximum(0, np.diff(energy))
-    if onset.max() == 0:
-        return []
-    onset = onset / onset.max()
-
-    # Peak picking with minimum gap of 0.25 s
-    threshold = onset.mean() + onset.std() * 0.5
-    min_gap = max(1, int(sr * 0.25 / hop))
-    peaks = []
-    i = 0
-    while i < len(onset):
-        if onset[i] > threshold:
-            window_end = min(i + min_gap, len(onset))
-            peak = i + int(np.argmax(onset[i:window_end]))
-            peaks.append(peak)
-            i = peak + min_gap
-        else:
-            i += 1
-
-    if len(peaks) < 4:
-        return []
-
-    # Estimate tempo from median inter-onset interval
-    intervals_sec = np.diff(peaks) * hop / sr
-    median_interval = float(np.median(intervals_sec))
-    if median_interval <= 0:
-        return []
-
-    bpm = 60.0 / median_interval
-    # Normalise to 60–180 BPM range
-    while bpm < 60:
-        bpm *= 2
-        median_interval /= 2
-    while bpm > 180:
-        bpm /= 2
-        median_interval *= 2
-
-    # Reject if inter-onset coefficient of variation is too high
-    cv = float(np.std(intervals_sec) / np.mean(intervals_sec))
-    if cv > 0.4:
-        return []
-
-    # Build regular beat grid anchored at first detected peak
-    first_beat = peaks[0] * hop / sr
-    total_dur = len(audio) / sr
-    beats = []
-    t = first_beat
-    while t < total_dur:
-        beats.append(round(t, 4))
-        t += median_interval
-
-    return beats
-
-
 def get_video_duration(filepath):
     cmd = [
         FFPROBE, "-v", "quiet",
@@ -378,7 +287,7 @@ def _split_middle_clips(clips):
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
                   variation=False, music_start=0.0, use_original_duration=False,
-                  output_format="9:16", fit_mode="crop", sync_to_beat=False):
+                  output_format="9:16", fit_mode="crop"):
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
     min_dur, max_dur = parse_duration_range(duration_range)
 
@@ -402,17 +311,8 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         text_options, canvas_w=w, canvas_h=h
     )
 
-    # Beat detection (once, before the clip loop)
-    beats = []
-    beat_warning = None
-    if sync_to_beat and audio:
-        beats = detect_beats(audio, music_start)
-        if not beats:
-            beat_warning = "Beat sync skipped — could not detect a stable tempo in the audio"
-
     # ── Step 1: process each clip to normalised w×h silent segments ──
     processed = []
-    current_pos = 0.0
     for i, clip_path in enumerate(ordered):
         clip_dur = get_video_duration(clip_path)
         is_final = "final" in os.path.basename(clip_path).lower()
@@ -427,20 +327,8 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         else:
             eff_max = min(max_dur, clip_dur) if clip_dur > 0 else max_dur
             eff_min = min(min_dur, eff_max)
-            if beats:
-                target_min = current_pos + eff_min
-                target_max = current_pos + eff_max
-                candidates = [b for b in beats if target_min <= b <= target_max]
-                if candidates:
-                    mid = (target_min + target_max) / 2
-                    actual_dur = min(candidates, key=lambda b: abs(b - mid)) - current_pos
-                else:
-                    actual_dur = random.uniform(eff_min, eff_max)
-            else:
-                actual_dur = random.uniform(eff_min, eff_max)
+            actual_dur = random.uniform(eff_min, eff_max)
             apply_trim = True
-
-        current_pos += actual_dur
 
         # Text overlay is skipped on the "final" clip
         active_dt = [] if (is_final or not drawtext_filters) else drawtext_filters
@@ -516,9 +404,8 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
     if r.returncode != 0:
         raise RuntimeError(f"FFmpeg concat/mix failed:\n{r.stderr[-800:]}")
 
-    warnings = [w for w in (text_warning, beat_warning) if w]
     return {
         "total_duration": total_duration,
         "clip_order": [os.path.basename(p) for p, _ in zip(ordered, processed)],
-        "warning": " | ".join(warnings) if warnings else None,
+        "warning": text_warning,
     }

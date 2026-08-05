@@ -30,7 +30,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-key-change-in-prod")
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
-RESEND_FROM    = os.environ.get("RESEND_FROM_EMAIL", "noreply@videocompositor.app")
+RESEND_FROM    = os.environ.get("RESEND_FROM_EMAIL", "noreply@clipsnap.app")
 
 # In-memory composition session store  {session_id: {...}}
 sessions: dict = {}
@@ -121,7 +121,7 @@ def forgot():
             resend.Emails.send({
                 "from":    RESEND_FROM,
                 "to":      [email],
-                "subject": "Your Video Compositor login link",
+                "subject": "Your ClipSnap login link",
                 "html": (
                     "<p>Click the link below to log in. It expires in 24 hours.</p>"
                     f'<p><a href="{magic_url}">{magic_url}</a></p>'
@@ -242,7 +242,7 @@ def stripe_webhook():
                 resend.Emails.send({
                     "from":    RESEND_FROM,
                     "to":      [email],
-                    "subject": "Your Video Compositor login link",
+                    "subject": "Your ClipSnap login link",
                     "html": (
                         "<p>Thank you for your purchase! Click the link below to log in. It expires in 24 hours.</p>"
                         f'<p><a href="{magic_url}">{magic_url}</a></p>'

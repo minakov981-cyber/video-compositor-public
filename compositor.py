@@ -5,6 +5,13 @@ import random
 import re
 import shutil
 import subprocess
+import tempfile
+
+try:
+    import aubio as _aubio
+    _AUBIO_AVAILABLE = True
+except ImportError:
+    _AUBIO_AVAILABLE = False
 
 
 def _detect_ffmpeg():
@@ -50,6 +57,63 @@ POSITION_Y = {
 }
 
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+
+
+def detect_beats(audio_path, offset_sec=0.0):
+    """Return beat timestamps in seconds relative to video start (i.e. after offset_sec).
+
+    Extracts audio via ffmpeg starting at offset_sec, feeds mono 44100 Hz PCM to
+    aubio.tempo, then checks for a stable tempo before returning.
+    Returns [] if aubio is unavailable, extraction fails, or tempo is unstable.
+    """
+    if not _AUBIO_AVAILABLE:
+        return []
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        cmd = [FFMPEG, "-y"]
+        if offset_sec > 0:
+            cmd += ["-ss", str(offset_sec)]
+        cmd += ["-i", audio_path, "-ac", "1", "-ar", "44100", "-f", "wav", tmp_path]
+        r = subprocess.run(cmd, capture_output=True)
+        if r.returncode != 0:
+            return []
+
+        hop_s = 256
+        win_s = 512
+        samplerate = 44100
+
+        src   = _aubio.source(tmp_path, samplerate, hop_s)
+        tempo = _aubio.tempo("default", win_s, hop_s, samplerate)
+
+        beats = []
+        while True:
+            samples, read = src()
+            if tempo(samples):
+                beats.append(float(tempo.get_last_s()))
+            if read < hop_s:
+                break
+
+        if len(beats) < 4:
+            return []
+
+        intervals = [beats[i + 1] - beats[i] for i in range(len(beats) - 1)]
+        mean = sum(intervals) / len(intervals)
+        variance = sum((x - mean) ** 2 for x in intervals) / len(intervals)
+        # reject if coefficient of variation > 0.5 (too irregular to be useful)
+        if mean > 0 and (variance ** 0.5) / mean > 0.5:
+            return []
+
+        return beats
+
+    except Exception:
+        return []
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def get_video_duration(filepath):
@@ -287,7 +351,7 @@ def _split_middle_clips(clips):
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
                   variation=False, music_start=0.0, use_original_duration=False,
-                  output_format="9:16", fit_mode="crop"):
+                  output_format="9:16", fit_mode="crop", sync_to_beat=False):
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
     min_dur, max_dur = parse_duration_range(duration_range)
 
@@ -311,8 +375,17 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         text_options, canvas_w=w, canvas_h=h
     )
 
+    # Beat detection (once, before the clip loop)
+    beats = []
+    beat_warning = None
+    if sync_to_beat and audio:
+        beats = detect_beats(audio, music_start)
+        if not beats:
+            beat_warning = "Beat sync skipped — could not detect a stable tempo in the audio"
+
     # ── Step 1: process each clip to normalised w×h silent segments ──
     processed = []
+    current_pos = 0.0
     for i, clip_path in enumerate(ordered):
         clip_dur = get_video_duration(clip_path)
         is_final = "final" in os.path.basename(clip_path).lower()
@@ -327,8 +400,20 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         else:
             eff_max = min(max_dur, clip_dur) if clip_dur > 0 else max_dur
             eff_min = min(min_dur, eff_max)
-            actual_dur = random.uniform(eff_min, eff_max)
+            if beats:
+                target_min = current_pos + eff_min
+                target_max = current_pos + eff_max
+                candidates = [b for b in beats if target_min <= b <= target_max]
+                if candidates:
+                    mid = (target_min + target_max) / 2
+                    actual_dur = min(candidates, key=lambda b: abs(b - mid)) - current_pos
+                else:
+                    actual_dur = random.uniform(eff_min, eff_max)
+            else:
+                actual_dur = random.uniform(eff_min, eff_max)
             apply_trim = True
+
+        current_pos += actual_dur
 
         # Text overlay is skipped on the "final" clip
         active_dt = [] if (is_final or not drawtext_filters) else drawtext_filters
@@ -404,8 +489,9 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
     if r.returncode != 0:
         raise RuntimeError(f"FFmpeg concat/mix failed:\n{r.stderr[-800:]}")
 
+    warnings = [w for w in (text_warning, beat_warning) if w]
     return {
         "total_duration": total_duration,
         "clip_order": [os.path.basename(p) for p, _ in zip(ordered, processed)],
-        "warning": text_warning,
+        "warning": " | ".join(warnings) if warnings else None,
     }

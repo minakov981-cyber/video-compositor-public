@@ -359,6 +359,7 @@ def compose():
 
     hook_clips, middle_clips, final_clips = _classify_clips(saved_clips)
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
+    sync_to_beat = request.form.get("sync_to_beat", "false").lower() == "true"
 
     sessions[session_id] = {
         "hook_clips":           hook_clips,
@@ -370,6 +371,7 @@ def compose():
         "use_original_duration": use_original_duration,
         "output_format":        request.form.get("output_format", "9:16"),
         "fit_mode":             request.form.get("fit_mode", "crop"),
+        "sync_to_beat":         sync_to_beat,
         "variation_count":      0,
     }
 
@@ -392,6 +394,8 @@ def variation():
         sessions[session_id]["output_format"] = data["output_format"]
     if "fit_mode" in data:
         sessions[session_id]["fit_mode"] = data["fit_mode"]
+    if "sync_to_beat" in data:
+        sessions[session_id]["sync_to_beat"] = bool(data["sync_to_beat"])
     return _run_composition(session_id, text_opts, variation=True)
 
 
@@ -420,6 +424,7 @@ def _run_composition(session_id, text_opts, variation):
             use_original_duration=s.get("use_original_duration", False),
             output_format=s.get("output_format", "9:16"),
             fit_mode=s.get("fit_mode", "crop"),
+            sync_to_beat=s.get("sync_to_beat", False),
             temp_dir=temp_dir,
         )
         resp = {

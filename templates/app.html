@@ -327,6 +327,13 @@
         <input type="number" id="music-start" min="0" step="0.1" placeholder="0">
         <div class="hint">Leave blank to start from beginning</div>
       </div>
+      <div class="field" style="margin-top:4px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text);font-weight:normal;text-transform:none;letter-spacing:0">
+          <input type="checkbox" id="sync-to-beat" disabled>
+          Sync cuts to beat
+        </label>
+        <div class="hint">Aligns clip cuts to music beats. Requires an audio file.</div>
+      </div>
     </div>
 
     <!-- Settings -->
@@ -693,6 +700,9 @@
   document.getElementById('audio-input').addEventListener('change', e => {
     audioFile = e.target.files[0] || null;
     document.getElementById('audio-name').textContent = audioFile ? audioFile.name : 'No file selected';
+    const syncCb = document.getElementById('sync-to-beat');
+    syncCb.disabled = !audioFile;
+    if (!audioFile) syncCb.checked = false;
   });
 
   // ── Create video ──────────────────────────────────────────────────────────
@@ -710,6 +720,7 @@
     fd.append('music_start',    document.getElementById('music-start').value);
     fd.append('output_format',  getSelectedFormat());
     fd.append('fit_mode',       getSelectedFitMode());
+    fd.append('sync_to_beat',   document.getElementById('sync-to-beat').checked);
     fd.append('text',           document.getElementById('overlay-text').value);
     fd.append('font',           document.getElementById('font-select').value);
     fd.append('font_size',      document.getElementById('font-size').value);
@@ -757,6 +768,7 @@
       box_opacity: parseInt(document.getElementById('box-opacity').value, 10),
       output_format: getSelectedFormat(),
       fit_mode:      getSelectedFitMode(),
+      sync_to_beat:  document.getElementById('sync-to-beat').checked,
     };
 
     setLoading('variation-btn', true, 'Rendering…');

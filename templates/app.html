@@ -324,6 +324,22 @@
   .seg-btn .seg-sub   { font-size: .72rem; color: var(--text-dim); font-family: var(--mono); }
   .seg-btn.active .seg-sub { color: rgba(255,142,0,.7); }
 
+  /* ── Processing hint ── */
+  .processing-hint {
+    display: none;
+    margin-top: 12px;
+    font-size: .82rem;
+    color: var(--text-dim);
+    text-align: center;
+    font-family: var(--mono);
+    animation: hint-pulse 1.8s ease-in-out infinite;
+  }
+  .processing-hint span { color: var(--accent); }
+  @keyframes hint-pulse {
+    0%, 100% { opacity: 0.4; }
+    50%       { opacity: 1;   }
+  }
+
   /* hidden utility */
   .hidden { display: none !important; }
 </style>
@@ -532,6 +548,7 @@
     <button class="btn btn-primary" id="create-btn" onclick="createVideo()">
       Create Video
     </button>
+    <p id="processing-hint" class="processing-hint">Our best guys are working on your video. <span>Please hold tight.</span></p>
     <div id="create-error"></div>
 
   </div><!-- /left -->
@@ -780,6 +797,7 @@
     fd.append('box_opacity', document.getElementById('box-opacity').value);
 
     setLoading('create-btn', true, 'Processing…');
+    document.getElementById('processing-hint').style.display = 'block';
     try {
       const res  = await fetch('/compose', { method: 'POST', body: fd });
       const data = await res.json();
@@ -793,6 +811,7 @@
       showError('create-error', e.message);
     } finally {
       setLoading('create-btn', false, 'Create Video');
+      document.getElementById('processing-hint').style.display = 'none';
     }
   }
 

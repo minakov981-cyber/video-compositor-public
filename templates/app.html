@@ -466,6 +466,13 @@
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">Video Clips</div>
 
+      <div class="field" style="margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text);font-weight:normal;text-transform:none;letter-spacing:0;font-family:var(--body)">
+          <input type="checkbox" id="use-original-duration" checked onchange="toggleDurationInput()">
+          Use original clip duration
+        </label>
+      </div>
+
       <div id="drop-zone">
         <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -486,12 +493,6 @@
     <!-- Settings -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">Clip Duration</div>
-      <div class="field" style="margin-bottom:12px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text);font-weight:normal;text-transform:none;letter-spacing:0;font-family:var(--body)">
-          <input type="checkbox" id="use-original-duration" onchange="toggleDurationInput()">
-          Use original clip duration
-        </label>
-      </div>
       <div class="field">
         <label>Duration per clip (seconds)</label>
         <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
@@ -743,6 +744,7 @@
     } catch (e) { /* ignore — fonts dir may be empty */ }
   }
   loadFonts();
+  toggleDurationInput();
 
   // ── Color picker sync (text color) ───────────────────────────────────────
   const picker = document.getElementById('text-color-picker');
@@ -978,6 +980,8 @@
     } else {
       clip.trimEnd = Math.min(clip.duration, Math.max(t, clip.trimStart + MIN));
     }
+    const durCb = document.getElementById('use-original-duration');
+    if (durCb && durCb.checked) { durCb.checked = false; toggleDurationInput(); }
     updateHandles(clipId);
   });
 

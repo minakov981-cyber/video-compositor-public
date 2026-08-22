@@ -480,23 +480,38 @@
       </div>
       <input type="file" id="clip-input" accept="video/*" multiple class="hidden">
 
-      <div style="margin-top:12px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text);font-weight:normal;text-transform:none;letter-spacing:0;font-family:var(--body)">
-          <input type="checkbox" id="use-original-duration" checked onchange="toggleDurationInput()">
-          Use original clip duration
-        </label>
-      </div>
-
       <div id="clips-list"></div>
     </div>
 
     <!-- Settings -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">Clip Duration</div>
-      <div class="field">
-        <label>Duration per clip (seconds)</label>
-        <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
-        <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
+      <div class="seg-group" id="duration-mode-group" style="flex-direction:row;margin-bottom:16px">
+        <button type="button" class="seg-btn active" data-value="auto" onclick="selectDurationMode(this)">
+          <span class="seg-info">
+            <span class="seg-label">Auto</span>
+            <span class="seg-sub">Random duration per clip</span>
+          </span>
+        </button>
+        <button type="button" class="seg-btn" data-value="manual" onclick="selectDurationMode(this)">
+          <span class="seg-info">
+            <span class="seg-label">Manual trim</span>
+            <span class="seg-sub">Use ✂ to set trim points</span>
+          </span>
+        </button>
+      </div>
+      <div id="duration-auto-panel">
+        <div class="field" style="margin-bottom:0">
+          <label>Duration per clip (seconds)</label>
+          <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
+          <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
+        </div>
+      </div>
+      <div id="duration-manual-panel" class="hidden">
+        <p style="font-size:.83rem;color:var(--text-dim);font-family:var(--mono)">
+          Open ✂ on each clip to set trim points.<br>
+          Clips without a trim use their full duration.
+        </p>
       </div>
     </div>
 
@@ -744,7 +759,6 @@
     } catch (e) { /* ignore — fonts dir may be empty */ }
   }
   loadFonts();
-  toggleDurationInput();
 
   // ── Color picker sync (text color) ───────────────────────────────────────
   const picker = document.getElementById('text-color-picker');
@@ -773,10 +787,18 @@
     document.getElementById('box-controls').style.display = isBox ? 'block' : 'none';
   }
 
-  // ── Duration toggle ───────────────────────────────────────────────────────
-  function toggleDurationInput() {
-    const checked = document.getElementById('use-original-duration').checked;
-    document.getElementById('duration-range').disabled = checked;
+  // ── Duration mode ─────────────────────────────────────────────────────────
+  function selectDurationMode(btn) {
+    document.querySelectorAll('#duration-mode-group .seg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const isAuto = btn.dataset.value === 'auto';
+    document.getElementById('duration-auto-panel').classList.toggle('hidden', !isAuto);
+    document.getElementById('duration-manual-panel').classList.toggle('hidden', isAuto);
+  }
+
+  function getSelectedDurationMode() {
+    const active = document.querySelector('#duration-mode-group .seg-btn.active');
+    return active ? active.dataset.value : 'auto';
   }
 
   // ── Drop zone ─────────────────────────────────────────────────────────────
@@ -980,8 +1002,8 @@
     } else {
       clip.trimEnd = Math.min(clip.duration, Math.max(t, clip.trimStart + MIN));
     }
-    const durCb = document.getElementById('use-original-duration');
-    if (durCb && durCb.checked) { durCb.checked = false; toggleDurationInput(); }
+    const manualBtn = document.querySelector('#duration-mode-group .seg-btn[data-value="manual"]');
+    if (manualBtn && getSelectedDurationMode() !== 'manual') selectDurationMode(manualBtn);
     updateHandles(clipId);
   });
 
@@ -1091,7 +1113,7 @@
 
     fd.append('audio',          audioFile);
     fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
-    fd.append('use_original_duration', document.getElementById('use-original-duration').checked);
+    fd.append('use_original_duration', getSelectedDurationMode() === 'manual');
     fd.append('music_start',    document.getElementById('music-start').value);
     fd.append('output_format',  getSelectedFormat());
     fd.append('fit_mode',       getSelectedFitMode());
@@ -1133,7 +1155,7 @@
     const payload  = {
       session_id: sessionId,
       text:       variText || document.getElementById('overlay-text').value,
-      use_original_duration: document.getElementById('use-original-duration').checked,
+      use_original_duration: getSelectedDurationMode() === 'manual',
       font:       document.getElementById('font-select').value,
       font_size:  parseInt(document.getElementById('font-size').value, 10),
       position:    document.getElementById('text-position').value,

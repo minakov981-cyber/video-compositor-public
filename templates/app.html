@@ -466,13 +466,6 @@
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">Video Clips</div>
 
-      <div class="field" style="margin-bottom:12px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text);font-weight:normal;text-transform:none;letter-spacing:0;font-family:var(--body)">
-          <input type="checkbox" id="use-original-duration" checked onchange="toggleDurationInput()">
-          Use original clip duration
-        </label>
-      </div>
-
       <div id="drop-zone">
         <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -486,6 +479,13 @@
         </p>
       </div>
       <input type="file" id="clip-input" accept="video/*" multiple class="hidden">
+
+      <div style="margin-top:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.85rem;color:var(--text);font-weight:normal;text-transform:none;letter-spacing:0;font-family:var(--body)">
+          <input type="checkbox" id="use-original-duration" checked onchange="toggleDurationInput()">
+          Use original clip duration
+        </label>
+      </div>
 
       <div id="clips-list"></div>
     </div>

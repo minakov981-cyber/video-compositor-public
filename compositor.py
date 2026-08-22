@@ -287,7 +287,8 @@ def _split_middle_clips(clips):
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
                   variation=False, music_start=0.0, use_original_duration=False,
-                  output_format="9:16", fit_mode="crop"):
+                  output_format="9:16", fit_mode="crop", clip_trims=None):
+    clip_trims = clip_trims or {}
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
     min_dur, max_dur = parse_duration_range(duration_range)
 
@@ -317,18 +318,29 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         clip_dur = get_video_duration(clip_path)
         is_final = "final" in os.path.basename(clip_path).lower()
 
-        # "final" clips are always exactly 3 seconds regardless of use_original_duration
-        if is_final:
-            actual_dur = min(3.0, clip_dur) if clip_dur > 0 else 3.0
-            apply_trim = True
-        elif use_original_duration:
-            actual_dur = clip_dur
-            apply_trim = False
+        # Per-clip trim settings
+        trim       = clip_trims.get(clip_path, {})
+        trim_start = max(0.0, float(trim.get("start", 0.0)))
+        trim_end_v = float(trim.get("end", -1))
+        trim_end   = trim_end_v if trim_end_v > trim_start else None
+
+        # Effective duration within the trimmed window
+        if trim_end is not None:
+            eff_clip_dur = trim_end - trim_start
+        elif clip_dur > 0:
+            eff_clip_dur = clip_dur - trim_start
         else:
-            eff_max = min(max_dur, clip_dur) if clip_dur > 0 else max_dur
-            eff_min = min(min_dur, eff_max)
+            eff_clip_dur = max_dur
+
+        # "final" clips: always 3 s regardless of duration settings
+        if is_final:
+            actual_dur = min(3.0, eff_clip_dur) if eff_clip_dur > 0 else 3.0
+        elif use_original_duration:
+            actual_dur = eff_clip_dur
+        else:
+            eff_max    = min(max_dur, eff_clip_dur) if eff_clip_dur > 0 else max_dur
+            eff_min    = min(min_dur, eff_max)
             actual_dur = random.uniform(eff_min, eff_max)
-            apply_trim = True
 
         # Text overlay is skipped on the "final" clip
         active_dt = [] if (is_final or not drawtext_filters) else drawtext_filters
@@ -337,21 +349,25 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
         if fit_mode == "blur":
             fc = _build_blur_filter_complex(w, h, active_dt)
-            cmd = [FFMPEG, "-y", "-i", clip_path,
-                   "-filter_complex", fc,
-                   "-map", "[vout]"]
-            if apply_trim:
-                cmd += ["-t", str(actual_dur)]
-            cmd += ["-an", "-c:v", "libx264", "-preset", "fast",
+            cmd = [FFMPEG, "-y"]
+            if trim_start > 0:
+                cmd += ["-ss", str(trim_start)]
+            cmd += ["-i", clip_path,
+                    "-filter_complex", fc,
+                    "-map", "[vout]",
+                    "-t", str(actual_dur),
+                    "-an", "-c:v", "libx264", "-preset", "fast",
                     "-pix_fmt", "yuv420p", "-r", "30", out]
         else:  # crop (default)
             vf = _build_crop_vf(w, h)
             if active_dt:
                 vf += "," + ",".join(active_dt)
-            cmd = [FFMPEG, "-y", "-i", clip_path]
-            if apply_trim:
-                cmd += ["-t", str(actual_dur)]
-            cmd += ["-vf", vf, "-an", "-c:v", "libx264", "-preset", "fast",
+            cmd = [FFMPEG, "-y"]
+            if trim_start > 0:
+                cmd += ["-ss", str(trim_start)]
+            cmd += ["-i", clip_path,
+                    "-t", str(actual_dur),
+                    "-vf", vf, "-an", "-c:v", "libx264", "-preset", "fast",
                     "-pix_fmt", "yuv420p", "-r", "30", out]
 
         r = subprocess.run(cmd, capture_output=True, text=True)

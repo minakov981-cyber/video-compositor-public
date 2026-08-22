@@ -347,6 +347,100 @@
     50%       { opacity: 1;   }
   }
 
+  /* ── Trim panel ── */
+  .clip-item { display: flex; flex-direction: column; }
+
+  .clip-row.trim-open {
+    border-radius: 10px 10px 0 0;
+    border-bottom-color: transparent;
+  }
+  .clip-trim-btn {
+    background: none; border: none; color: var(--text-faint);
+    cursor: pointer; font-size: .9rem; padding: 0 3px;
+    transition: color .15s; flex-shrink: 0; line-height: 1;
+  }
+  .clip-trim-btn:hover  { color: var(--accent); }
+  .clip-trim-btn.active { color: var(--accent); }
+
+  .clip-trim-panel {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    padding: 10px 12px 12px;
+  }
+
+  .filmstrip-wrapper {
+    position: relative;
+    height: 58px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #111;
+    cursor: default;
+    user-select: none;
+  }
+  .filmstrip-track {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+  }
+  .filmstrip-frame {
+    height: 100%;
+    flex: 1;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+  }
+  .filmstrip-loading {
+    color: var(--text-faint);
+    font-size: .78rem;
+    font-family: var(--mono);
+  }
+  .trim-dim {
+    position: absolute;
+    top: 0; height: 100%;
+    background: rgba(0,0,0,0.62);
+    pointer-events: none;
+    z-index: 4;
+  }
+  .trim-border {
+    position: absolute;
+    top: 0; height: 100%;
+    border-top: 3px solid var(--accent);
+    border-bottom: 3px solid var(--accent);
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .trim-handle {
+    position: absolute;
+    top: 0; width: 11px; height: 100%;
+    background: var(--accent);
+    cursor: ew-resize;
+    z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+  }
+  .trim-handle::after {
+    content: '';
+    width: 2px; height: 18px;
+    background: rgba(0,0,0,0.35);
+    border-radius: 1px;
+  }
+  .trim-handle-left  { border-radius: 3px 0 0 3px; }
+  .trim-handle-right { border-radius: 0 3px 3px 0; transform: translateX(-100%); }
+
+  .trim-info {
+    margin-top: 7px;
+    font-size: .74rem;
+    color: var(--text-dim);
+    text-align: center;
+    font-family: var(--mono);
+  }
+  .trim-info strong { color: var(--accent); font-weight: 600; }
+
   /* hidden utility */
   .hidden { display: none !important; }
 </style>
@@ -602,6 +696,8 @@
   let uploadedClips = [];
   let audioFile     = null;
   let sessionId     = null;
+  let clipIdCounter = 0;
+  let dragging      = null; // { clipId, side }
 
   // ── Format / fit-mode selectors ───────────────────────────────────────────
   function selectFormat(btn) {
@@ -698,12 +794,28 @@
   function addClips(files) {
     const names = new Set(uploadedClips.map(c => c.file.name));
     files.forEach(f => {
-      if (!names.has(f.name)) uploadedClips.push({ file: f, displayName: f.name });
+      if (!names.has(f.name)) {
+        uploadedClips.push({
+          file:           f,
+          displayName:    f.name,
+          blobUrl:        URL.createObjectURL(f),
+          clipId:         clipIdCounter++,
+          trimStart:      0,
+          trimEnd:        null,
+          duration:       null,
+          filmstripBuilt: false,
+          frameDataUrls:  [],
+          trimOpen:       false,
+        });
+      }
     });
     renderClips();
   }
 
-  function removeClip(idx) {
+  function removeClipById(clipId) {
+    const idx = uploadedClips.findIndex(c => c.clipId === clipId);
+    if (idx === -1) return;
+    URL.revokeObjectURL(uploadedClips[idx].blobUrl);
     uploadedClips.splice(idx, 1);
     renderClips();
   }
@@ -720,24 +832,203 @@
   function renderClips() {
     const list = document.getElementById('clips-list');
     if (!uploadedClips.length) { list.innerHTML = ''; return; }
-    list.innerHTML = uploadedClips.map((c, i) => {
+
+    list.innerHTML = uploadedClips.map(c => {
       const lbl = clipLabel(c.displayName);
-      return `<div class="clip-row" data-idx="${i}">
-        <span class="badge ${lbl.cls}">${lbl.text}</span>
-        <span class="clip-name" title="${c.displayName}" onclick="startEdit(${i})">${c.displayName}</span>
-        <button class="clip-remove" onclick="removeClip(${i})" title="Remove">✕</button>
-      </div>`;
+      const framesHtml = c.filmstripBuilt
+        ? c.frameDataUrls.map(url => `<img src="${url}" class="filmstrip-frame">`).join('')
+        : '<span class="filmstrip-loading">Extracting frames…</span>';
+
+      return `
+        <div class="clip-item" id="clip-item-${c.clipId}">
+          <div class="clip-row ${c.trimOpen ? 'trim-open' : ''}" data-clipid="${c.clipId}">
+            <span class="badge ${lbl.cls}">${lbl.text}</span>
+            <span class="clip-name" title="${c.displayName}" onclick="startEditById(${c.clipId})">${c.displayName}</span>
+            <button class="clip-trim-btn ${c.trimOpen ? 'active' : ''}" onclick="toggleTrim(${c.clipId}, event)" title="Trim clip">✂</button>
+            <button class="clip-remove" onclick="removeClipById(${c.clipId})" title="Remove">✕</button>
+          </div>
+          <div class="clip-trim-panel ${c.trimOpen ? '' : 'hidden'}" id="trim-panel-${c.clipId}">
+            <div class="filmstrip-wrapper" id="filmstrip-wrapper-${c.clipId}">
+              <div class="filmstrip-track" id="filmstrip-track-${c.clipId}">${framesHtml}</div>
+              <div class="trim-dim" id="trim-dim-left-${c.clipId}"></div>
+              <div class="trim-dim" id="trim-dim-right-${c.clipId}"></div>
+              <div class="trim-border" id="trim-border-${c.clipId}"></div>
+              <div class="trim-handle trim-handle-left"  id="handle-left-${c.clipId}"></div>
+              <div class="trim-handle trim-handle-right" id="handle-right-${c.clipId}"></div>
+            </div>
+            <div class="trim-info" id="trim-info-${c.clipId}"></div>
+          </div>
+        </div>`;
     }).join('');
+
+    uploadedClips.forEach(c => {
+      if (c.trimOpen && c.filmstripBuilt) {
+        attachHandleEvents(c.clipId);
+        requestAnimationFrame(() => updateHandles(c.clipId));
+      }
+    });
   }
 
-  function startEdit(idx) {
-    const row = document.querySelector(`.clip-row[data-idx="${idx}"]`);
+  // ── Trim toggle ───────────────────────────────────────────────────────────
+  async function toggleTrim(clipId, event) {
+    event.stopPropagation();
+    const clip = uploadedClips.find(c => c.clipId === clipId);
+    if (!clip) return;
+
+    clip.trimOpen = !clip.trimOpen;
+
+    const panel = document.getElementById(`trim-panel-${clipId}`);
+    const btn   = document.querySelector(`#clip-item-${clipId} .clip-trim-btn`);
+    const row   = document.querySelector(`#clip-item-${clipId} .clip-row`);
+
+    if (clip.trimOpen) {
+      panel.classList.remove('hidden');
+      row.classList.add('trim-open');
+      btn.classList.add('active');
+      if (!clip.filmstripBuilt) {
+        await buildFilmstrip(clipId);
+      } else {
+        attachHandleEvents(clipId);
+        requestAnimationFrame(() => updateHandles(clipId));
+      }
+    } else {
+      panel.classList.add('hidden');
+      row.classList.remove('trim-open');
+      btn.classList.remove('active');
+    }
+  }
+
+  // ── Filmstrip builder ─────────────────────────────────────────────────────
+  async function buildFilmstrip(clipId) {
+    const clip  = uploadedClips.find(c => c.clipId === clipId);
+    if (!clip || clip.filmstripBuilt) return;
+
+    const track = document.getElementById(`filmstrip-track-${clipId}`);
+
+    try {
+      const video = document.createElement('video');
+      video.muted   = true;
+      video.preload = 'auto';
+      video.src     = clip.blobUrl;
+
+      await new Promise((resolve, reject) => {
+        video.onloadedmetadata = resolve;
+        video.onerror = () => reject(new Error('Video load failed'));
+        setTimeout(() => reject(new Error('Timeout')), 10000);
+      });
+
+      clip.duration = video.duration;
+      if (clip.trimEnd === null) clip.trimEnd = video.duration;
+
+      const NUM_FRAMES = 10;
+      const cvs = document.createElement('canvas');
+      cvs.width = 60; cvs.height = 100;
+      const ctx = cvs.getContext('2d');
+
+      clip.frameDataUrls = [];
+      for (let i = 0; i < NUM_FRAMES; i++) {
+        const t = i === 0 ? 0
+                : i === NUM_FRAMES - 1 ? Math.max(0, video.duration - 0.05)
+                : (i / (NUM_FRAMES - 1)) * video.duration;
+        video.currentTime = t;
+        await new Promise(resolve => {
+          video.onseeked = resolve;
+          setTimeout(resolve, 600);
+        });
+        ctx.drawImage(video, 0, 0, 60, 100);
+        clip.frameDataUrls.push(cvs.toDataURL('image/jpeg', 0.7));
+      }
+
+      clip.filmstripBuilt = true;
+      track.innerHTML = clip.frameDataUrls
+        .map(url => `<img src="${url}" class="filmstrip-frame">`)
+        .join('');
+
+      attachHandleEvents(clipId);
+      requestAnimationFrame(() => updateHandles(clipId));
+
+    } catch (err) {
+      track.innerHTML = `<span class="filmstrip-loading" style="color:var(--red)">Could not read video frames</span>`;
+    }
+  }
+
+  // ── Handle drag ───────────────────────────────────────────────────────────
+  function attachHandleEvents(clipId) {
+    const lh = document.getElementById(`handle-left-${clipId}`);
+    const rh = document.getElementById(`handle-right-${clipId}`);
+    if (lh) lh.onpointerdown = e => { e.preventDefault(); dragging = { clipId, side: 'left'  }; };
+    if (rh) rh.onpointerdown = e => { e.preventDefault(); dragging = { clipId, side: 'right' }; };
+  }
+
+  document.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const { clipId, side } = dragging;
+    const clip = uploadedClips.find(c => c.clipId === clipId);
+    if (!clip || !clip.duration) return;
+
+    const wrapper = document.getElementById(`filmstrip-wrapper-${clipId}`);
+    if (!wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    const pos  = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const t    = (pos / rect.width) * clip.duration;
+    const MIN  = 0.05;
+
+    if (side === 'left') {
+      clip.trimStart = Math.max(0, Math.min(t, (clip.trimEnd ?? clip.duration) - MIN));
+    } else {
+      clip.trimEnd = Math.min(clip.duration, Math.max(t, clip.trimStart + MIN));
+    }
+    updateHandles(clipId);
+  });
+
+  document.addEventListener('pointerup', () => { dragging = null; });
+
+  // ── Handle positions ──────────────────────────────────────────────────────
+  function updateHandles(clipId) {
+    const clip = uploadedClips.find(c => c.clipId === clipId);
+    if (!clip || !clip.duration) return;
+
+    const wrapper = document.getElementById(`filmstrip-wrapper-${clipId}`);
+    if (!wrapper) return;
+    const W   = wrapper.offsetWidth;
+    const dur = clip.duration;
+    const s   = clip.trimStart;
+    const e   = clip.trimEnd ?? dur;
+
+    const lx = (s / dur) * W;
+    const rx = (e / dur) * W;
+
+    const lh     = document.getElementById(`handle-left-${clipId}`);
+    const rh     = document.getElementById(`handle-right-${clipId}`);
+    const dimL   = document.getElementById(`trim-dim-left-${clipId}`);
+    const dimR   = document.getElementById(`trim-dim-right-${clipId}`);
+    const border = document.getElementById(`trim-border-${clipId}`);
+    const info   = document.getElementById(`trim-info-${clipId}`);
+
+    if (lh)     lh.style.left = `${lx}px`;
+    if (rh)     rh.style.left = `${rx}px`;
+    if (dimL)   { dimL.style.left = '0'; dimL.style.width = `${lx}px`; }
+    if (dimR)   { dimR.style.left = `${rx}px`; dimR.style.width = `${W - rx}px`; }
+    if (border) { border.style.left = `${lx}px`; border.style.width = `${rx - lx}px`; }
+    if (info) {
+      const sel = e - s;
+      const isFullDur = s === 0 && Math.abs(e - dur) < 0.02;
+      info.innerHTML = isFullDur
+        ? `<strong>Full clip</strong> &nbsp;·&nbsp; ${dur.toFixed(2)}s`
+        : `<strong>${s.toFixed(2)}s → ${e.toFixed(2)}s</strong> &nbsp;·&nbsp; ${sel.toFixed(2)}s selected`;
+    }
+  }
+
+  // ── Inline name edit ──────────────────────────────────────────────────────
+  function startEditById(clipId) {
+    const row  = document.querySelector(`.clip-row[data-clipid="${clipId}"]`);
     if (!row) return;
     const span = row.querySelector('.clip-name');
-    const clip = uploadedClips[idx];
+    const clip = uploadedClips.find(c => c.clipId === clipId);
+    if (!clip) return;
 
-    const extMatch = clip.displayName.match(/(\.[^.]+)$/);
-    const ext      = extMatch ? extMatch[1] : '';
+    const extMatch  = clip.displayName.match(/(\.[^.]+)$/);
+    const ext       = extMatch ? extMatch[1] : '';
     const nameNoExt = ext ? clip.displayName.slice(0, -ext.length) : clip.displayName;
 
     span.style.display = 'none';
@@ -753,16 +1044,16 @@
     function commit() {
       if (committed) return;
       committed = true;
-      const newStem = (input.value.trim() || nameNoExt).replace(/[/\\]/g, '_');
+      const newStem    = (input.value.trim() || nameNoExt).replace(/[/\\]/g, '_');
       clip.displayName = newStem + ext;
       input.remove();
-      span.style.display = '';
-      span.textContent   = clip.displayName;
-      span.title         = clip.displayName;
-      const lbl = clipLabel(clip.displayName);
-      const badge = row.querySelector('.badge');
-      badge.className  = `badge ${lbl.cls}`;
-      badge.textContent = lbl.text;
+      span.style.display  = '';
+      span.textContent    = clip.displayName;
+      span.title          = clip.displayName;
+      const lbl           = clipLabel(clip.displayName);
+      const badge         = row.querySelector('.badge');
+      badge.className     = `badge ${lbl.cls}`;
+      badge.textContent   = lbl.text;
     }
 
     input.addEventListener('blur', commit);
@@ -787,6 +1078,13 @@
     const fd = new FormData();
     uploadedClips.forEach(c => fd.append('clips', c.file));
     fd.append('clip_names', JSON.stringify(uploadedClips.map(c => c.displayName)));
+
+    const clipTrims = {};
+    uploadedClips.forEach(c => {
+      clipTrims[c.displayName] = { start: c.trimStart || 0, end: c.trimEnd !== null ? c.trimEnd : -1 };
+    });
+    fd.append('clip_trims', JSON.stringify(clipTrims));
+
     fd.append('audio',          audioFile);
     fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
     fd.append('use_original_duration', document.getElementById('use-original-duration').checked);

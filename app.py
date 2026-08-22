@@ -334,12 +334,24 @@ def compose():
     except Exception:
         clip_names = []
 
+    try:
+        clip_trims_raw = json.loads(request.form.get("clip_trims", "{}"))
+    except Exception:
+        clip_trims_raw = {}
+
     saved_clips = []
+    clip_trims  = {}
     for i, f in enumerate(clip_files):
         display_name = clip_names[i] if i < len(clip_names) else (f.filename or f"clip_{i}.mp4")
         dest = os.path.join(session_dir, secure_filename(display_name))
         f.save(dest)
         saved_clips.append(dest)
+        if display_name in clip_trims_raw:
+            t = clip_trims_raw[display_name]
+            clip_trims[dest] = {
+                "start": float(t.get("start", 0)),
+                "end":   float(t.get("end", -1)),
+            }
 
     audio_file = request.files.get("audio")
     if audio_file and audio_file.filename:
@@ -361,16 +373,17 @@ def compose():
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
 
     sessions[session_id] = {
-        "hook_clips":           hook_clips,
-        "middle_clips":         middle_clips,
-        "final_clips":          final_clips,
-        "audio":                audio_path,
-        "duration_range":       duration_range,
-        "music_start":          music_start,
+        "hook_clips":            hook_clips,
+        "middle_clips":          middle_clips,
+        "final_clips":           final_clips,
+        "audio":                 audio_path,
+        "duration_range":        duration_range,
+        "music_start":           music_start,
         "use_original_duration": use_original_duration,
-        "output_format":        request.form.get("output_format", "9:16"),
-        "fit_mode":             request.form.get("fit_mode", "crop"),
-        "variation_count":      0,
+        "output_format":         request.form.get("output_format", "9:16"),
+        "fit_mode":              request.form.get("fit_mode", "crop"),
+        "clip_trims":            clip_trims,
+        "variation_count":       0,
     }
 
     return _run_composition(session_id, text_opts, variation=False)
@@ -420,6 +433,7 @@ def _run_composition(session_id, text_opts, variation):
             use_original_duration=s.get("use_original_duration", False),
             output_format=s.get("output_format", "9:16"),
             fit_mode=s.get("fit_mode", "crop"),
+            clip_trims=s.get("clip_trims", {}),
             temp_dir=temp_dir,
         )
         resp = {

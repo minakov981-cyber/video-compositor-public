@@ -287,9 +287,10 @@ def _split_middle_clips(clips):
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
                   variation=False, music_start=0.0, music_end=None,
-                  use_original_duration=False,
+                  clip_audios=None, use_original_duration=False,
                   output_format="9:16", fit_mode="crop", clip_trims=None):
-    clip_trims = clip_trims or {}
+    clip_trims  = clip_trims  or {}
+    clip_audios = clip_audios or {}
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
     min_dur, max_dur = parse_duration_range(duration_range)
 
@@ -313,7 +314,8 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         text_options, canvas_w=w, canvas_h=h
     )
 
-    # ── Step 1: process each clip to normalised w×h silent segments ──
+    # ── Step 1: process each clip to normalised w×h segments ──
+    any_audio = any(clip_audios.get(p, False) for p in ordered)
     processed = []
     for i, clip_path in enumerate(ordered):
         clip_dur = get_video_duration(clip_path)
@@ -344,21 +346,32 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             actual_dur = random.uniform(eff_min, eff_max)
 
         # Text overlay is skipped on the "final" clip
-        active_dt = [] if (is_final or not drawtext_filters) else drawtext_filters
+        active_dt  = [] if (is_final or not drawtext_filters) else drawtext_filters
+        keep_audio = clip_audios.get(clip_path, False)
 
         out = os.path.join(temp_dir, f"clip_{i:03d}.mp4")
 
         if fit_mode == "blur":
-            fc = _build_blur_filter_complex(w, h, active_dt)
+            fc  = _build_blur_filter_complex(w, h, active_dt)
             cmd = [FFMPEG, "-y"]
             if trim_start > 0:
                 cmd += ["-ss", str(trim_start)]
-            cmd += ["-i", clip_path,
-                    "-filter_complex", fc,
-                    "-map", "[vout]",
-                    "-t", str(actual_dur),
-                    "-an", "-c:v", "libx264", "-preset", "fast",
-                    "-pix_fmt", "yuv420p", "-r", "30", out]
+            cmd += ["-i", clip_path]
+            if any_audio and not keep_audio:
+                cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
+                cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0",
+                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast",
+                        "-pix_fmt", "yuv420p", "-r", "30",
+                        "-c:a", "aac", "-b:a", "128k", "-shortest", out]
+            elif keep_audio:
+                cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a:0",
+                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast",
+                        "-pix_fmt", "yuv420p", "-r", "30",
+                        "-c:a", "aac", "-b:a", "192k", out]
+            else:
+                cmd += ["-filter_complex", fc, "-map", "[vout]",
+                        "-t", str(actual_dur), "-an", "-c:v", "libx264", "-preset", "fast",
+                        "-pix_fmt", "yuv420p", "-r", "30", out]
         else:  # crop (default)
             vf = _build_crop_vf(w, h)
             if active_dt:
@@ -366,10 +379,21 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             cmd = [FFMPEG, "-y"]
             if trim_start > 0:
                 cmd += ["-ss", str(trim_start)]
-            cmd += ["-i", clip_path,
-                    "-t", str(actual_dur),
-                    "-vf", vf, "-an", "-c:v", "libx264", "-preset", "fast",
-                    "-pix_fmt", "yuv420p", "-r", "30", out]
+            cmd += ["-i", clip_path]
+            if any_audio and not keep_audio:
+                cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                        "-t", str(actual_dur), "-vf", vf,
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30",
+                        "-c:a", "aac", "-b:a", "128k", "-shortest", out]
+            elif keep_audio:
+                cmd += ["-t", str(actual_dur), "-vf", vf,
+                        "-map", "0:v:0", "-map", "0:a:0",
+                        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30",
+                        "-c:a", "aac", "-b:a", "192k", out]
+            else:
+                cmd += ["-t", str(actual_dur), "-vf", vf, "-an",
+                        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30", out]
 
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
@@ -388,27 +412,53 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
     # ── Step 3: concatenate clips, optionally mix in music ──
     # (drawtext was already baked into each clip in Step 1)
+    audio_input = []
     if audio:
-        audio_input = []
         if music_start and music_start > 0:
             audio_input = ["-ss", str(music_start)]
         if music_end is not None:
             audio_input += ["-to", str(music_end)]
         audio_input += ["-i", audio]
 
+    if audio and any_audio:
+        # Mix clip audio with background music
         cmd = [
             FFMPEG, "-y",
             "-f", "concat", "-safe", "0", "-i", concat_file,
             *audio_input,
             "-t", str(total_duration),
-            "-map", "0:v:0",
-            "-map", "1:a:0",
+            "-filter_complex", "[0:a:0][1:a:0]amix=inputs=2:duration=first:dropout_transition=0[aout]",
+            "-map", "0:v:0", "-map", "[aout]",
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            output_path,
+        ]
+    elif audio:
+        # Background music only (no clip audio)
+        cmd = [
+            FFMPEG, "-y",
+            "-f", "concat", "-safe", "0", "-i", concat_file,
+            *audio_input,
+            "-t", str(total_duration),
+            "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k",
             "-shortest",
             output_path,
         ]
+    elif any_audio:
+        # Clip audio only, no background music
+        cmd = [
+            FFMPEG, "-y",
+            "-f", "concat", "-safe", "0", "-i", concat_file,
+            "-t", str(total_duration),
+            "-map", "0:v:0", "-map", "0:a:0",
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            output_path,
+        ]
     else:
+        # No audio at all
         cmd = [
             FFMPEG, "-y",
             "-f", "concat", "-safe", "0", "-i", concat_file,

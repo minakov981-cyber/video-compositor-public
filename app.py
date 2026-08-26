@@ -339,8 +339,14 @@ def compose():
     except Exception:
         clip_trims_raw = {}
 
+    try:
+        clip_audios_raw = json.loads(request.form.get("clip_audios", "{}"))
+    except Exception:
+        clip_audios_raw = {}
+
     saved_clips = []
     clip_trims  = {}
+    clip_audios = {}
     for i, f in enumerate(clip_files):
         display_name = clip_names[i] if i < len(clip_names) else (f.filename or f"clip_{i}.mp4")
         dest = os.path.join(session_dir, secure_filename(display_name))
@@ -352,6 +358,7 @@ def compose():
                 "start": float(t.get("start", 0)),
                 "end":   float(t.get("end", -1)),
             }
+        clip_audios[dest] = bool(clip_audios_raw.get(display_name, False))
 
     audio_file = request.files.get("audio")
     if audio_file and audio_file.filename:
@@ -386,6 +393,7 @@ def compose():
         "duration_range":        duration_range,
         "music_start":           music_start,
         "music_end":             music_end,
+        "clip_audios":           clip_audios,
         "use_original_duration": use_original_duration,
         "output_format":         request.form.get("output_format", "9:16"),
         "fit_mode":              request.form.get("fit_mode", "crop"),
@@ -438,6 +446,7 @@ def _run_composition(session_id, text_opts, variation):
             variation=variation,
             music_start=s.get("music_start", 0.0),
             music_end=s.get("music_end", None),
+            clip_audios=s.get("clip_audios", {}),
             use_original_duration=s.get("use_original_duration", False),
             output_format=s.get("output_format", "9:16"),
             fit_mode=s.get("fit_mode", "crop"),

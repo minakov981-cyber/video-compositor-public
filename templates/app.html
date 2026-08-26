@@ -444,6 +444,21 @@
   /* ── Waveform ── */
   .waveform-canvas { width: 100%; height: 100%; display: block; }
 
+  /* ── Trim frame preview ── */
+  .trim-preview {
+    position: fixed;
+    pointer-events: none;
+    z-index: 1000;
+    width: 54px;
+    height: 96px;
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.75);
+  }
+  .trim-preview canvas { width: 100%; height: 100%; display: block; }
+
   /* hidden utility */
   .hidden { display: none !important; }
 </style>
@@ -734,6 +749,13 @@
   let dragging      = null; // { clipId, side }
   let audioDragging = null; // 'left' | 'right'
   let audioState    = { duration: null, start: 0, end: null };
+  let previewSeekId = 0;
+
+  // Global floating frame preview element
+  const trimPreviewEl = document.createElement('div');
+  trimPreviewEl.className = 'trim-preview hidden';
+  trimPreviewEl.innerHTML = '<canvas width="54" height="96"></canvas>';
+  document.body.appendChild(trimPreviewEl);
 
   // ── Format / fit-mode selectors ───────────────────────────────────────────
   function selectFormat(btn) {
@@ -827,6 +849,45 @@
   function getSelectedDurationMode() {
     const active = document.querySelector('#duration-mode-group .seg-btn.active');
     return active ? active.dataset.value : 'auto';
+  }
+
+  // ── Trim frame preview ───────────────────────────────────────────────────
+  async function showFramePreview(clipId, side, t) {
+    const seekId = ++previewSeekId;
+    const clip   = uploadedClips.find(c => c.clipId === clipId);
+    if (!clip) return;
+
+    const handleId = side === 'left' ? `handle-left-${clipId}` : `handle-right-${clipId}`;
+    const handleEl = document.getElementById(handleId);
+    if (!handleEl) return;
+
+    const rect = handleEl.getBoundingClientRect();
+    trimPreviewEl.style.left = `${rect.left + rect.width / 2 - 27}px`;
+    trimPreviewEl.style.top  = `${rect.top - 106}px`;
+    trimPreviewEl.classList.remove('hidden');
+
+    if (!clip.seekVideo) {
+      clip.seekVideo = document.createElement('video');
+      clip.seekVideo.muted   = true;
+      clip.seekVideo.preload = 'auto';
+      clip.seekVideo.src     = clip.blobUrl;
+      await new Promise(resolve => {
+        clip.seekVideo.onloadedmetadata = resolve;
+        setTimeout(resolve, 3000);
+      });
+    }
+
+    clip.seekVideo.currentTime = Math.max(0, t);
+    await new Promise(resolve => {
+      clip.seekVideo.onseeked = resolve;
+      setTimeout(resolve, 400);
+    });
+
+    if (seekId !== previewSeekId) return; // stale — a newer seek is in flight
+
+    const canvas = trimPreviewEl.querySelector('canvas');
+    const ctx    = canvas.getContext('2d');
+    ctx.drawImage(clip.seekVideo, 0, 0, canvas.width, canvas.height);
   }
 
   // ── Audio waveform ────────────────────────────────────────────────────────
@@ -1129,6 +1190,7 @@
           const manualBtn = document.querySelector('#duration-mode-group .seg-btn[data-value="manual"]');
           if (manualBtn && getSelectedDurationMode() !== 'manual') selectDurationMode(manualBtn);
           updateHandles(clipId);
+          showFramePreview(clipId, side, side === 'left' ? clip.trimStart : (clip.trimEnd ?? clip.duration));
         }
       }
     }
@@ -1151,7 +1213,11 @@
     }
   });
 
-  document.addEventListener('pointerup', () => { dragging = null; audioDragging = null; });
+  document.addEventListener('pointerup', () => {
+    dragging = null;
+    audioDragging = null;
+    trimPreviewEl.classList.add('hidden');
+  });
 
   // ── Handle positions ──────────────────────────────────────────────────────
   function updateHandles(clipId) {

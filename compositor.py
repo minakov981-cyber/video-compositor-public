@@ -286,7 +286,8 @@ def _split_middle_clips(clips):
 
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
-                  variation=False, music_start=0.0, use_original_duration=False,
+                  variation=False, music_start=0.0, music_end=None,
+                  use_original_duration=False,
                   output_format="9:16", fit_mode="crop", clip_trims=None):
     clip_trims = clip_trims or {}
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
@@ -391,6 +392,8 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         audio_input = []
         if music_start and music_start > 0:
             audio_input = ["-ss", str(music_start)]
+        if music_end is not None:
+            audio_input += ["-to", str(music_end)]
         audio_input += ["-i", audio]
 
         cmd = [

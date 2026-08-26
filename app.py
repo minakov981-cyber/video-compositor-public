@@ -369,6 +369,12 @@ def compose():
     except ValueError:
         music_start = 0.0
 
+    raw_end = request.form.get("music_end", "")
+    try:
+        music_end = float(raw_end) if raw_end.strip() else None
+    except ValueError:
+        music_end = None
+
     hook_clips, middle_clips, final_clips = _classify_clips(saved_clips)
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
 
@@ -379,6 +385,7 @@ def compose():
         "audio":                 audio_path,
         "duration_range":        duration_range,
         "music_start":           music_start,
+        "music_end":             music_end,
         "use_original_duration": use_original_duration,
         "output_format":         request.form.get("output_format", "9:16"),
         "fit_mode":              request.form.get("fit_mode", "crop"),
@@ -430,6 +437,7 @@ def _run_composition(session_id, text_opts, variation):
             output_path=output_path,
             variation=variation,
             music_start=s.get("music_start", 0.0),
+            music_end=s.get("music_end", None),
             use_original_duration=s.get("use_original_duration", False),
             output_format=s.get("output_format", "9:16"),
             fit_mode=s.get("fit_mode", "crop"),

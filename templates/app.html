@@ -441,6 +441,9 @@
   }
   .trim-info strong { color: var(--accent); font-weight: 600; }
 
+  /* ── Waveform ── */
+  .waveform-canvas { width: 100%; height: 100%; display: block; }
+
   /* hidden utility */
   .hidden { display: none !important; }
 </style>
@@ -528,10 +531,27 @@
         <span id="audio-name">No file selected</span>
       </div>
       <input type="file" id="audio-input" accept="audio/*,video/*" class="hidden">
-      <div class="field" style="margin-top:14px">
-        <label>Music start time (sec)</label>
-        <input type="number" id="music-start" min="0" step="0.1" placeholder="0">
-        <div class="hint">Leave blank to start from beginning</div>
+
+      <div id="audio-trim-panel" class="hidden" style="margin-top:14px">
+        <div class="filmstrip-wrapper" id="waveform-wrapper">
+          <canvas id="waveform-canvas" class="waveform-canvas"></canvas>
+          <div class="trim-dim"    id="audio-dim-left"></div>
+          <div class="trim-dim"    id="audio-dim-right"></div>
+          <div class="trim-border" id="audio-trim-border"></div>
+          <div class="trim-handle trim-handle-left"  id="audio-handle-left"></div>
+          <div class="trim-handle trim-handle-right" id="audio-handle-right"></div>
+        </div>
+        <div class="trim-info" id="audio-trim-info"></div>
+        <div class="field-row" style="margin-top:12px">
+          <div class="field" style="margin-bottom:0">
+            <label>Start (sec)</label>
+            <input type="number" id="music-start" min="0" step="0.1" placeholder="0">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>End (sec)</label>
+            <input type="number" id="music-end" min="0" step="0.1" placeholder="full track">
+          </div>
+        </div>
       </div>
     </div>
 
@@ -712,6 +732,8 @@
   let sessionId     = null;
   let clipIdCounter = 0;
   let dragging      = null; // { clipId, side }
+  let audioDragging = null; // 'left' | 'right'
+  let audioState    = { duration: null, start: 0, end: null };
 
   // ── Format / fit-mode selectors ───────────────────────────────────────────
   function selectFormat(btn) {
@@ -805,6 +827,102 @@
   function getSelectedDurationMode() {
     const active = document.querySelector('#duration-mode-group .seg-btn.active');
     return active ? active.dataset.value : 'auto';
+  }
+
+  // ── Audio waveform ────────────────────────────────────────────────────────
+  async function buildWaveform(file) {
+    const arrayBuffer = await file.arrayBuffer();
+    const audioCtx    = new (window.AudioContext || window.webkitAudioContext)();
+    let audioBuffer;
+    try {
+      audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    } finally {
+      audioCtx.close();
+    }
+
+    audioState.duration = audioBuffer.duration;
+    audioState.start    = 0;
+    audioState.end      = audioBuffer.duration;
+
+    const wrapper = document.getElementById('waveform-wrapper');
+    const canvas  = document.getElementById('waveform-canvas');
+    canvas.width  = wrapper.offsetWidth || 800;
+    canvas.height = 58;
+
+    const ctx  = canvas.getContext('2d');
+    const data = audioBuffer.getChannelData(0);
+    const step = Math.ceil(data.length / canvas.width);
+    const amp  = canvas.height / 2;
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(255,142,0,0.7)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    for (let i = 0; i < canvas.width; i++) {
+      let min = 1, max = -1;
+      for (let j = 0; j < step; j++) {
+        const d = data[i * step + j] || 0;
+        if (d < min) min = d;
+        if (d > max) max = d;
+      }
+      ctx.moveTo(i, (1 + min) * amp);
+      ctx.lineTo(i, (1 + max) * amp);
+    }
+    ctx.stroke();
+
+    document.getElementById('audio-trim-panel').classList.remove('hidden');
+    attachAudioHandleEvents();
+    requestAnimationFrame(() => { updateAudioHandles(); syncAudioInputs(); });
+  }
+
+  function attachAudioHandleEvents() {
+    const lh = document.getElementById('audio-handle-left');
+    const rh = document.getElementById('audio-handle-right');
+    if (lh) lh.onpointerdown = e => { e.preventDefault(); audioDragging = 'left';  };
+    if (rh) rh.onpointerdown = e => { e.preventDefault(); audioDragging = 'right'; };
+  }
+
+  function updateAudioHandles() {
+    const { duration, start } = audioState;
+    if (!duration) return;
+    const end = audioState.end ?? duration;
+
+    const wrapper = document.getElementById('waveform-wrapper');
+    if (!wrapper) return;
+    const W  = wrapper.offsetWidth;
+    const lx = (start / duration) * W;
+    const rx = (end   / duration) * W;
+
+    const lh     = document.getElementById('audio-handle-left');
+    const rh     = document.getElementById('audio-handle-right');
+    const dimL   = document.getElementById('audio-dim-left');
+    const dimR   = document.getElementById('audio-dim-right');
+    const border = document.getElementById('audio-trim-border');
+    const info   = document.getElementById('audio-trim-info');
+
+    if (lh)     lh.style.left = `${lx}px`;
+    if (rh)     rh.style.left = `${rx}px`;
+    if (dimL)   { dimL.style.left = '0'; dimL.style.width = `${lx}px`; }
+    if (dimR)   { dimR.style.left = `${rx}px`; dimR.style.width = `${W - rx}px`; }
+    if (border) { border.style.left = `${lx}px`; border.style.width = `${rx - lx}px`; }
+    if (info) {
+      const sel        = end - start;
+      const isFullDur  = start === 0 && Math.abs(end - duration) < 0.02;
+      info.innerHTML   = isFullDur
+        ? `<strong>Full track</strong> &nbsp;·&nbsp; ${duration.toFixed(2)}s`
+        : `<strong>${start.toFixed(2)}s → ${end.toFixed(2)}s</strong> &nbsp;·&nbsp; ${sel.toFixed(2)}s selected`;
+    }
+  }
+
+  function syncAudioInputs() {
+    const si = document.getElementById('music-start');
+    const ei = document.getElementById('music-end');
+    if (si) si.value = audioState.start > 0.005 ? audioState.start.toFixed(2) : '';
+    if (ei) {
+      const isFullDur = audioState.end === null || Math.abs(audioState.end - audioState.duration) < 0.02;
+      ei.value = isFullDur ? '' : audioState.end.toFixed(2);
+    }
   }
 
   // ── Drop zone ─────────────────────────────────────────────────────────────
@@ -993,29 +1111,47 @@
   }
 
   document.addEventListener('pointermove', e => {
-    if (!dragging) return;
-    const { clipId, side } = dragging;
-    const clip = uploadedClips.find(c => c.clipId === clipId);
-    if (!clip || !clip.duration) return;
-
-    const wrapper = document.getElementById(`filmstrip-wrapper-${clipId}`);
-    if (!wrapper) return;
-    const rect = wrapper.getBoundingClientRect();
-    const pos  = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const t    = (pos / rect.width) * clip.duration;
-    const MIN  = 0.05;
-
-    if (side === 'left') {
-      clip.trimStart = Math.max(0, Math.min(t, (clip.trimEnd ?? clip.duration) - MIN));
-    } else {
-      clip.trimEnd = Math.min(clip.duration, Math.max(t, clip.trimStart + MIN));
+    if (dragging) {
+      const { clipId, side } = dragging;
+      const clip = uploadedClips.find(c => c.clipId === clipId);
+      if (clip && clip.duration) {
+        const wrapper = document.getElementById(`filmstrip-wrapper-${clipId}`);
+        if (wrapper) {
+          const rect = wrapper.getBoundingClientRect();
+          const pos  = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+          const t    = (pos / rect.width) * clip.duration;
+          const MIN  = 0.05;
+          if (side === 'left') {
+            clip.trimStart = Math.max(0, Math.min(t, (clip.trimEnd ?? clip.duration) - MIN));
+          } else {
+            clip.trimEnd = Math.min(clip.duration, Math.max(t, clip.trimStart + MIN));
+          }
+          const manualBtn = document.querySelector('#duration-mode-group .seg-btn[data-value="manual"]');
+          if (manualBtn && getSelectedDurationMode() !== 'manual') selectDurationMode(manualBtn);
+          updateHandles(clipId);
+        }
+      }
     }
-    const manualBtn = document.querySelector('#duration-mode-group .seg-btn[data-value="manual"]');
-    if (manualBtn && getSelectedDurationMode() !== 'manual') selectDurationMode(manualBtn);
-    updateHandles(clipId);
+
+    if (audioDragging && audioState.duration) {
+      const wrapper = document.getElementById('waveform-wrapper');
+      if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        const pos  = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+        const t    = (pos / rect.width) * audioState.duration;
+        const MIN  = 0.05;
+        if (audioDragging === 'left') {
+          audioState.start = Math.max(0, Math.min(t, (audioState.end ?? audioState.duration) - MIN));
+        } else {
+          audioState.end = Math.min(audioState.duration, Math.max(t, audioState.start + MIN));
+        }
+        updateAudioHandles();
+        syncAudioInputs();
+      }
+    }
   });
 
-  document.addEventListener('pointerup', () => { dragging = null; });
+  document.addEventListener('pointerup', () => { dragging = null; audioDragging = null; });
 
   // ── Handle positions ──────────────────────────────────────────────────────
   function updateHandles(clipId) {
@@ -1101,6 +1237,31 @@
   document.getElementById('audio-input').addEventListener('change', e => {
     audioFile = e.target.files[0] || null;
     document.getElementById('audio-name').textContent = audioFile ? audioFile.name : 'No file selected';
+    if (audioFile) {
+      buildWaveform(audioFile);
+    } else {
+      document.getElementById('audio-trim-panel').classList.add('hidden');
+      audioState = { duration: null, start: 0, end: null };
+    }
+  });
+
+  document.getElementById('music-start').addEventListener('input', e => {
+    const val = parseFloat(e.target.value);
+    if (!isNaN(val) && audioState.duration) {
+      audioState.start = Math.max(0, Math.min(val, (audioState.end ?? audioState.duration) - 0.05));
+      updateAudioHandles();
+    }
+  });
+
+  document.getElementById('music-end').addEventListener('input', e => {
+    if (!audioState.duration) return;
+    const val = parseFloat(e.target.value);
+    if (!isNaN(val)) {
+      audioState.end = Math.min(audioState.duration, Math.max(val, audioState.start + 0.05));
+    } else {
+      audioState.end = audioState.duration;
+    }
+    updateAudioHandles();
   });
 
   // ── Create video ──────────────────────────────────────────────────────────
@@ -1123,6 +1284,7 @@
     fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
     fd.append('use_original_duration', getSelectedDurationMode() === 'manual');
     fd.append('music_start',    document.getElementById('music-start').value);
+    fd.append('music_end',      document.getElementById('music-end').value.trim());
     fd.append('output_format',  getSelectedFormat());
     fd.append('fit_mode',       getSelectedFitMode());
     fd.append('text',           document.getElementById('overlay-text').value);

@@ -449,8 +449,8 @@
     position: fixed;
     pointer-events: none;
     z-index: 1000;
-    width: 54px;
-    height: 96px;
+    width: 81px;
+    height: 144px;
     border: 2px solid var(--accent);
     border-radius: 6px;
     overflow: hidden;
@@ -754,7 +754,7 @@
   // Global floating frame preview element
   const trimPreviewEl = document.createElement('div');
   trimPreviewEl.className = 'trim-preview hidden';
-  trimPreviewEl.innerHTML = '<canvas width="54" height="96"></canvas>';
+  trimPreviewEl.innerHTML = '<canvas width="81" height="144"></canvas>';
   document.body.appendChild(trimPreviewEl);
 
   // ── Format / fit-mode selectors ───────────────────────────────────────────
@@ -862,8 +862,8 @@
     if (!handleEl) return;
 
     const rect = handleEl.getBoundingClientRect();
-    trimPreviewEl.style.left = `${rect.left + rect.width / 2 - 27}px`;
-    trimPreviewEl.style.top  = `${rect.top - 106}px`;
+    trimPreviewEl.style.left = `${rect.left + rect.width / 2 - 40}px`;
+    trimPreviewEl.style.top  = `${rect.top - 154}px`;
     trimPreviewEl.classList.remove('hidden');
 
     if (!clip.seekVideo) {

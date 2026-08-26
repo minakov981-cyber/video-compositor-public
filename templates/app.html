@@ -907,6 +907,8 @@
       panel.classList.remove('hidden');
       row.classList.add('trim-open');
       btn.classList.add('active');
+      const manualBtn = document.querySelector('#duration-mode-group .seg-btn[data-value="manual"]');
+      if (manualBtn && getSelectedDurationMode() !== 'manual') selectDurationMode(manualBtn);
       if (!clip.filmstripBuilt) {
         await buildFilmstrip(clipId);
       } else {

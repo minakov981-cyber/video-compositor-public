@@ -480,39 +480,37 @@
       </div>
       <input type="file" id="clip-input" accept="video/*" multiple class="hidden">
 
-      <div id="clips-list"></div>
-    </div>
-
-    <!-- Settings -->
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-title">Clip Duration</div>
-      <div class="seg-group" id="duration-mode-group" style="flex-direction:row;margin-bottom:16px">
-        <button type="button" class="seg-btn active" data-value="auto" onclick="selectDurationMode(this)">
-          <span class="seg-info">
-            <span class="seg-label">Auto</span>
-            <span class="seg-sub">Random duration per clip</span>
-          </span>
-        </button>
-        <button type="button" class="seg-btn" data-value="manual" onclick="selectDurationMode(this)">
-          <span class="seg-info">
-            <span class="seg-label">Manual trim</span>
-            <span class="seg-sub">Use ✂ to set trim points</span>
-          </span>
-        </button>
-      </div>
-      <div id="duration-auto-panel">
-        <div class="field" style="margin-bottom:0">
-          <label>Duration per clip (seconds)</label>
-          <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
-          <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
+      <div style="margin-top:16px">
+        <div class="seg-group" id="duration-mode-group" style="flex-direction:row;margin-bottom:12px">
+          <button type="button" class="seg-btn active" data-value="auto" onclick="selectDurationMode(this)">
+            <span class="seg-info">
+              <span class="seg-label">Auto</span>
+              <span class="seg-sub">Random duration per clip</span>
+            </span>
+          </button>
+          <button type="button" class="seg-btn" data-value="manual" onclick="selectDurationMode(this)">
+            <span class="seg-info">
+              <span class="seg-label">Manual trim</span>
+              <span class="seg-sub">Use ✂ to set trim points</span>
+            </span>
+          </button>
+        </div>
+        <div id="duration-auto-panel">
+          <div class="field" style="margin-bottom:0">
+            <label>Duration per clip (seconds)</label>
+            <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
+            <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
+          </div>
+        </div>
+        <div id="duration-manual-panel" class="hidden">
+          <p style="font-size:.83rem;color:var(--text-dim);font-family:var(--mono)">
+            Open ✂ on each clip to set trim points.<br>
+            Clips without a trim use their full duration.
+          </p>
         </div>
       </div>
-      <div id="duration-manual-panel" class="hidden">
-        <p style="font-size:.83rem;color:var(--text-dim);font-family:var(--mono)">
-          Open ✂ on each clip to set trim points.<br>
-          Clips without a trim use their full duration.
-        </p>
-      </div>
+
+      <div id="clips-list"></div>
     </div>
 
     <!-- Audio -->

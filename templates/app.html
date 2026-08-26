@@ -792,6 +792,14 @@
     const isAuto = btn.dataset.value === 'auto';
     document.getElementById('duration-auto-panel').classList.toggle('hidden', !isAuto);
     document.getElementById('duration-manual-panel').classList.toggle('hidden', isAuto);
+    if (isAuto) {
+      uploadedClips.forEach(c => {
+        c.trimStart = 0;
+        c.trimEnd   = null;
+        c.trimOpen  = false;
+      });
+      renderClips();
+    }
   }
 
   function getSelectedDurationMode() {

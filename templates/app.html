@@ -1028,7 +1028,6 @@
     requestAnimationFrame(() => { updateAudioHandles(); syncAudioInputs(); });
 
     // Click on waveform → seek playback position
-    const wrapper = document.getElementById('waveform-wrapper');
     wrapper.onclick = e => {
       if (audioHandleDragged) { audioHandleDragged = false; return; }
       if (!audioPlayer || !audioState.duration) return;

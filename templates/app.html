@@ -453,6 +453,24 @@
   /* ── Waveform ── */
   .waveform-canvas { width: 100%; height: 100%; display: block; }
 
+  .audio-playhead {
+    position: absolute; top: 0; width: 2px; height: 100%;
+    background: rgba(255,255,255,0.85); pointer-events: none; z-index: 15;
+  }
+  .audio-player-bar {
+    display: flex; align-items: center; gap: 10px; margin-top: 8px;
+  }
+  .audio-play-btn {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); cursor: pointer;
+    padding: 5px 14px; font-size: .85rem; transition: border-color .15s, color .15s;
+    flex-shrink: 0;
+  }
+  .audio-play-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .audio-playhead-time {
+    font-family: var(--mono); font-size: .74rem; color: var(--text-dim);
+  }
+
   /* ── Trim frame preview ── */
   .trim-preview {
     position: fixed;
@@ -557,13 +575,18 @@
       <input type="file" id="audio-input" accept="audio/*,video/*" class="hidden">
 
       <div id="audio-trim-panel" class="hidden" style="margin-top:14px">
-        <div class="filmstrip-wrapper" id="waveform-wrapper">
+        <div class="filmstrip-wrapper" id="waveform-wrapper" style="cursor:pointer">
           <canvas id="waveform-canvas" class="waveform-canvas"></canvas>
-          <div class="trim-dim"    id="audio-dim-left"></div>
-          <div class="trim-dim"    id="audio-dim-right"></div>
-          <div class="trim-border" id="audio-trim-border"></div>
+          <div class="trim-dim"      id="audio-dim-left"></div>
+          <div class="trim-dim"      id="audio-dim-right"></div>
+          <div class="trim-border"   id="audio-trim-border"></div>
           <div class="trim-handle trim-handle-left"  id="audio-handle-left"></div>
           <div class="trim-handle trim-handle-right" id="audio-handle-right"></div>
+          <div class="audio-playhead hidden" id="audio-playhead"></div>
+        </div>
+        <div class="audio-player-bar">
+          <button class="audio-play-btn" id="audio-play-btn" onclick="toggleAudioPlayback()">▶</button>
+          <span class="audio-playhead-time" id="audio-playhead-time">0:00</span>
         </div>
         <div class="trim-info" id="audio-trim-info"></div>
         <div class="field-row" style="margin-top:12px">
@@ -758,7 +781,10 @@
   let dragging      = null; // { clipId, side }
   let audioDragging = null; // 'left' | 'right'
   let audioState    = { duration: null, start: 0, end: null };
-  let previewSeekId = 0;
+  let previewSeekId       = 0;
+  let audioPlayer         = null;
+  let playheadRaf         = null;
+  let audioHandleDragged  = false;
 
   // Global floating frame preview element
   const trimPreviewEl = document.createElement('div');
@@ -899,6 +925,62 @@
     ctx.drawImage(clip.seekVideo, 0, 0, canvas.width, canvas.height);
   }
 
+  // ── Audio player ──────────────────────────────────────────────────────────
+  function initAudioPlayer(file) {
+    if (audioPlayer) { audioPlayer.pause(); audioPlayer.src = ''; }
+    cancelAnimationFrame(playheadRaf);
+    audioPlayer     = new Audio(URL.createObjectURL(file));
+    audioPlayer.addEventListener('ended', () => {
+      cancelAnimationFrame(playheadRaf);
+      const btn = document.getElementById('audio-play-btn');
+      if (btn) btn.textContent = '▶';
+    });
+  }
+
+  function toggleAudioPlayback() {
+    if (!audioPlayer || !audioState.duration) return;
+    if (audioPlayer.paused) {
+      const end = audioState.end ?? audioState.duration;
+      if (audioPlayer.currentTime >= end) audioPlayer.currentTime = audioState.start;
+      audioPlayer.play();
+      document.getElementById('audio-play-btn').textContent = '⏸';
+      animatePlayhead();
+    } else {
+      audioPlayer.pause();
+      document.getElementById('audio-play-btn').textContent = '▶';
+      cancelAnimationFrame(playheadRaf);
+    }
+  }
+
+  function formatTime(t) {
+    const m = Math.floor(t / 60);
+    const s = Math.floor(t % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function animatePlayhead() {
+    if (!audioPlayer || !audioState.duration) return;
+    const wrapper  = document.getElementById('waveform-wrapper');
+    const playhead = document.getElementById('audio-playhead');
+    const timeEl   = document.getElementById('audio-playhead-time');
+    if (!wrapper || !playhead) return;
+
+    const t   = audioPlayer.currentTime;
+    const end = audioState.end ?? audioState.duration;
+    const x   = (t / audioState.duration) * wrapper.offsetWidth;
+
+    playhead.classList.remove('hidden');
+    playhead.style.left = `${x}px`;
+    if (timeEl) timeEl.textContent = formatTime(t);
+
+    if (t >= end) {
+      audioPlayer.pause();
+      document.getElementById('audio-play-btn').textContent = '▶';
+      return;
+    }
+    playheadRaf = requestAnimationFrame(animatePlayhead);
+  }
+
   // ── Audio waveform ────────────────────────────────────────────────────────
   async function buildWaveform(file) {
     const arrayBuffer = await file.arrayBuffer();
@@ -944,6 +1026,20 @@
     document.getElementById('audio-trim-panel').classList.remove('hidden');
     attachAudioHandleEvents();
     requestAnimationFrame(() => { updateAudioHandles(); syncAudioInputs(); });
+
+    // Click on waveform → seek playback position
+    const wrapper = document.getElementById('waveform-wrapper');
+    wrapper.onclick = e => {
+      if (audioHandleDragged) { audioHandleDragged = false; return; }
+      if (!audioPlayer || !audioState.duration) return;
+      const rect = wrapper.getBoundingClientRect();
+      const t    = ((e.clientX - rect.left) / rect.width) * audioState.duration;
+      audioPlayer.currentTime = Math.max(0, Math.min(t, audioState.duration));
+      const playhead = document.getElementById('audio-playhead');
+      const timeEl   = document.getElementById('audio-playhead-time');
+      if (playhead) { playhead.classList.remove('hidden'); playhead.style.left = `${e.clientX - rect.left}px`; }
+      if (timeEl)   timeEl.textContent = formatTime(audioPlayer.currentTime);
+    };
   }
 
   function attachAudioHandleEvents() {
@@ -1232,6 +1328,7 @@
         } else {
           audioState.end = Math.min(audioState.duration, Math.max(t, audioState.start + MIN));
         }
+        audioHandleDragged = true;
         updateAudioHandles();
         syncAudioInputs();
       }
@@ -1329,8 +1426,11 @@
     audioFile = e.target.files[0] || null;
     document.getElementById('audio-name').textContent = audioFile ? audioFile.name : 'No file selected';
     if (audioFile) {
+      initAudioPlayer(audioFile);
       buildWaveform(audioFile);
     } else {
+      if (audioPlayer) { audioPlayer.pause(); audioPlayer.src = ''; audioPlayer = null; }
+      cancelAnimationFrame(playheadRaf);
       document.getElementById('audio-trim-panel').classList.add('hidden');
       audioState = { duration: null, start: 0, end: null };
     }

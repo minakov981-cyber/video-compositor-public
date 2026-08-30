@@ -1,6 +1,9 @@
 import json
 import os
 import secrets
+import shutil
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -12,12 +15,14 @@ from flask import (Flask, jsonify, redirect, render_template, request,
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+from cleanup import cleanup_old_files
 from compositor import compose_video
 from db import (clear_magic_token, get_user, get_user_by_token, init_db,
                 set_magic_token, set_password, upsert_user_paid)
 
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "output"
+DATA_DIR   = os.environ.get("DATA_DIR", ".")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+OUTPUT_DIR = os.path.join(DATA_DIR, "output")
 TEMP_DIR   = "temp"
 FONTS_DIR  = "fonts"
 
@@ -39,6 +44,46 @@ try:
     init_db()
 except Exception as exc:
     print(f"[db] init failed (will retry on first request): {exc}")
+
+
+def _purge_orphaned_sessions(sessions_dict):
+    removed = 0
+    for sid in list(sessions_dict.keys()):
+        s = sessions_dict[sid]
+        paths = s["hook_clips"] + s["middle_clips"] + s["final_clips"]
+        if s["audio"]:
+            paths.append(s["audio"])
+        if any(not os.path.exists(p) for p in paths):
+            del sessions_dict[sid]
+            removed += 1
+    if removed:
+        print(f"[cleanup] sessions: purged {removed} orphaned session(s)")
+
+
+def _cleanup_loop():
+    try:
+        interval = int(os.environ.get("CLEANUP_INTERVAL_MINUTES", "60"))
+    except ValueError:
+        interval = 60
+    try:
+        max_age = int(os.environ.get("CLEANUP_MAX_AGE_HOURS", "24"))
+    except ValueError:
+        max_age = 24
+
+    # NOTE: gunicorn is configured with --workers 1; with multiple workers
+    # this thread would run in each worker — move cleanup to a separate process
+    # or protect with an advisory lock in Postgres if workers > 1.
+    while True:
+        try:
+            cleanup_old_files(UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, max_age)
+            _purge_orphaned_sessions(sessions)
+        except Exception as exc:
+            print(f"[cleanup] error: {exc}")
+        time.sleep(interval * 60)
+
+
+_t = threading.Thread(target=_cleanup_loop, daemon=True)
+_t.start()
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -453,6 +498,7 @@ def _run_composition(session_id, text_opts, variation):
             clip_trims=s.get("clip_trims", {}),
             temp_dir=temp_dir,
         )
+        shutil.rmtree(temp_dir, ignore_errors=True)
         resp = {
             "success":        True,
             "session_id":     session_id,
@@ -464,6 +510,7 @@ def _run_composition(session_id, text_opts, variation):
             resp["warning"] = result["warning"]
         return jsonify(resp)
     except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
         return jsonify({"success": False, "error": str(exc)}), 500
 
 

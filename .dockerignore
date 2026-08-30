@@ -1,0 +1,11 @@
+uploads/
+output/
+temp/
+testdata/
+__pycache__/
+*.pyc
+.env
+venv/
+.venv/
+.git/
+.DS_Store

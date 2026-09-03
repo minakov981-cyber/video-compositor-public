@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — ClipSnap</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0d0d0f;
+    --surface: #16171c;
+    --border:  #2a2b35;
+    --accent:  #5b6af5;
+    --accent-h:#7080ff;
+    --text:    #e2e4f0;
+    --muted:   #6b7280;
+    --radius:  12px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 40px;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 8px; }
+  .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 28px; }
+
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }
+
+  input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.95rem;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color .15s;
+    margin-bottom: 18px;
+  }
+  input:focus { border-color: var(--accent); }
+
+  .row { display: flex; gap: 12px; }
+  .row input { margin-bottom: 0; }
+  .row .days { width: 90px; flex-shrink: 0; }
+
+  button {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    padding: 11px;
+    cursor: pointer;
+    margin-top: 18px;
+    transition: background .15s;
+  }
+  button:hover { background: var(--accent-h); }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .msg {
+    margin-top: 18px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: none;
+  }
+  .msg.ok  { background: #1a2e1a; border: 1px solid #2d5a2d; color: #6fcf6f; }
+  .msg.err { background: #2e1a1a; border: 1px solid #5a2d2d; color: #cf6f6f; }
+
+  .error-box {
+    background: #2e1a1a;
+    border: 1px solid #5a2d2d;
+    color: #cf6f6f;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    margin-bottom: 18px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+
+{% if not admin_ok %}
+  <h1>Admin login</h1>
+  <p class="sub">Enter the admin secret to continue.</p>
+
+  {% if error %}
+  <div class="error-box">{{ error }}</div>
+  {% endif %}
+
+  <form method="POST" action="/admin/login">
+    <label>Admin secret</label>
+    <input type="password" name="secret" placeholder="••••••••" autofocus required>
+    <button type="submit">Log in</button>
+  </form>
+
+{% else %}
+  <h1>Grant trial access</h1>
+  <p class="sub">The user will receive an email with a magic link.</p>
+
+  <label>Email</label>
+  <div class="row">
+    <input type="email" id="email" placeholder="tester@example.com" autofocus>
+    <input type="number" id="days" class="days" value="7" min="1" max="365">
+  </div>
+  <small style="color:var(--muted);font-size:.8rem;">days</small>
+
+  <button id="btn" onclick="grant()">Grant access & send email</button>
+  <div class="msg" id="msg"></div>
+
+  <script>
+    async function grant() {
+      const email = document.getElementById('email').value.trim();
+      const days  = parseInt(document.getElementById('days').value) || 7;
+      const btn   = document.getElementById('btn');
+      const msg   = document.getElementById('msg');
+
+      if (!email) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      msg.style.display = 'none';
+
+      try {
+        const r = await fetch('/admin/grant-trial', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, days })
+        });
+        const data = await r.json();
+
+        if (data.ok) {
+          msg.className = 'msg ok';
+          msg.textContent = `✓ ${email} — ${days} days access granted. Email sent.`;
+          if (data.warning) msg.textContent += ` (warning: ${data.warning})`;
+          document.getElementById('email').value = '';
+        } else {
+          msg.className = 'msg err';
+          msg.textContent = data.error || 'Something went wrong.';
+        }
+      } catch (e) {
+        msg.className = 'msg err';
+        msg.textContent = 'Request failed.';
+      }
+
+      msg.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Grant access & send email';
+    }
+  </script>
+{% endif %}
+
+</div>
+</body>
+</html>

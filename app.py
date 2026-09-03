@@ -312,10 +312,26 @@ def stripe_webhook():
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
 
+@app.route("/admin")
+def admin_page():
+    return render_template("admin.html", admin_ok=session.get("admin"), error=None)
+
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
+    secret = os.environ.get("ADMIN_SECRET", "")
+    if secret and request.form.get("secret") == secret:
+        session["admin"] = True
+        return redirect(url_for("admin_page"))
+    return render_template("admin.html", admin_ok=False, error="Incorrect secret.")
+
+
 @app.route("/admin/grant-trial", methods=["POST"])
 def admin_grant_trial():
     secret = os.environ.get("ADMIN_SECRET", "")
-    if not secret or request.headers.get("X-Admin-Secret") != secret:
+    via_header  = secret and request.headers.get("X-Admin-Secret") == secret
+    via_session = session.get("admin") is True
+    if not via_header and not via_session:
         return jsonify({"error": "Forbidden"}), 403
 
     data  = request.get_json(force=True)

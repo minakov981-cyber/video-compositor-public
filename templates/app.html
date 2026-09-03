@@ -1491,17 +1491,15 @@
     fd.append('box_color',   boxHex.value);
     fd.append('box_opacity', document.getElementById('box-opacity').value);
 
-    setLoading('create-btn', true, 'Processing…');
+    setLoading('create-btn', true, 'Uploading…');
     document.getElementById('processing-hint').style.display = 'block';
     try {
       const res  = await fetch('/compose', { method: 'POST', body: fd });
       const data = await res.json();
-      if (data.success) {
-        sessionId = data.session_id;
-        showOutput(data.output, data.total_duration, data.clip_order, data.warning);
-      } else {
-        showError('create-error', data.error);
-      }
+      if (!data.success) { showError('create-error', data.error); return; }
+      sessionId = data.session_id;
+      setLoading('create-btn', true, 'Processing…');
+      await pollStatus(data.job_id, 'create-error');
     } catch (e) {
       showError('create-error', e.message);
     } finally {
@@ -1540,11 +1538,8 @@
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (data.success) {
-        showOutput(data.output, data.total_duration, data.clip_order, data.warning);
-      } else {
-        showError('variation-error', data.error);
-      }
+      if (!data.success) { showError('variation-error', data.error); return; }
+      await pollStatus(data.job_id, 'variation-error');
     } catch (e) {
       showError('variation-error', e.message);
     } finally {
@@ -1582,6 +1577,23 @@
 
     sec.style.display = 'block';
     sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function pollStatus(jobId, errorId) {
+    while (true) {
+      await new Promise(r => setTimeout(r, 2500));
+      const res  = await fetch(`/status/${jobId}`);
+      const data = await res.json();
+      if (data.status === 'done') {
+        const r = data.result;
+        showOutput(r.output, r.total_duration, r.clip_order, r.warning);
+        return;
+      }
+      if (data.status === 'error') {
+        showError(errorId, data.error || 'Render failed.');
+        return;
+      }
+    }
   }
 
   function setLoading(btnId, loading, label) {

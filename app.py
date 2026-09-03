@@ -39,6 +39,14 @@ RESEND_FROM    = os.environ.get("RESEND_FROM_EMAIL", "noreply@clipsnap.app")
 
 # In-memory composition session store  {session_id: {...}}
 sessions: dict = {}
+# In-memory job store  {job_id: {status, result, error}}
+jobs: dict = {}
+
+try:
+    MAX_CONCURRENT_RENDERS = int(os.environ.get("MAX_CONCURRENT_RENDERS", "2"))
+except ValueError:
+    MAX_CONCURRENT_RENDERS = 2
+_render_semaphore = threading.Semaphore(MAX_CONCURRENT_RENDERS)
 
 try:
     init_db()
@@ -89,7 +97,7 @@ _t.start()
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
 def _is_api_path():
-    return request.path.startswith(("/compose", "/variation", "/fonts", "/output"))
+    return request.path.startswith(("/compose", "/variation", "/fonts", "/output", "/status"))
 
 
 def _has_access(user) -> bool:
@@ -514,7 +522,10 @@ def compose():
         "variation_count":       0,
     }
 
-    return _run_composition(session_id, text_opts, variation=False)
+    job_id = uuid.uuid4().hex[:10]
+    jobs[job_id] = {"status": "processing", "result": None, "error": None}
+    threading.Thread(target=_render_job, args=(session_id, text_opts, False, job_id), daemon=True).start()
+    return jsonify({"success": True, "session_id": session_id, "job_id": job_id})
 
 
 @app.route("/variation", methods=["POST"])
@@ -533,10 +544,14 @@ def variation():
         sessions[session_id]["output_format"] = data["output_format"]
     if "fit_mode" in data:
         sessions[session_id]["fit_mode"] = data["fit_mode"]
-    return _run_composition(session_id, text_opts, variation=True)
+
+    job_id = uuid.uuid4().hex[:10]
+    jobs[job_id] = {"status": "processing", "result": None, "error": None}
+    threading.Thread(target=_render_job, args=(session_id, text_opts, True, job_id), daemon=True).start()
+    return jsonify({"success": True, "job_id": job_id})
 
 
-def _run_composition(session_id, text_opts, variation):
+def _run_composition(session_id, text_opts, variation, job_id):
     s    = sessions[session_id]
     s["variation_count"] += 1
     vnum = s["variation_count"]
@@ -576,10 +591,30 @@ def _run_composition(session_id, text_opts, variation):
         }
         if result.get("warning"):
             resp["warning"] = result["warning"]
-        return jsonify(resp)
+        jobs[job_id]["status"] = "done"
+        jobs[job_id]["result"] = resp
     except Exception as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        return jsonify({"success": False, "error": str(exc)}), 500
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["error"]  = str(exc)
+
+
+def _render_job(session_id, text_opts, variation, job_id):
+    with _render_semaphore:
+        _run_composition(session_id, text_opts, variation, job_id)
+
+
+@app.route("/status/<job_id>")
+@login_required
+def job_status(job_id):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"status": "error", "error": "Job not found"}), 404
+    if job["status"] == "done":
+        return jsonify({"status": "done", "result": job["result"]})
+    if job["status"] == "error":
+        return jsonify({"status": "error", "error": job["error"]})
+    return jsonify({"status": "processing"})
 
 
 @app.route("/output/<path:filename>")

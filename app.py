@@ -17,8 +17,8 @@ from werkzeug.utils import secure_filename
 
 from cleanup import cleanup_old_files
 from compositor import compose_video
-from db import (clear_magic_token, get_user, get_user_by_token, init_db,
-                set_magic_token, set_password, upsert_user_paid)
+from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
+                init_db, set_magic_token, set_password, upsert_user_paid)
 
 DATA_DIR   = os.environ.get("DATA_DIR", ".")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
@@ -92,6 +92,17 @@ def _is_api_path():
     return request.path.startswith(("/compose", "/variation", "/fonts", "/output"))
 
 
+def _has_access(user) -> bool:
+    if user["paid"]:
+        return True
+    trial = user.get("trial_expires")
+    if not trial:
+        return False
+    if trial.tzinfo is None:
+        trial = trial.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) < trial
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -101,7 +112,7 @@ def login_required(f):
                 return jsonify({"success": False, "error": "Unauthorized"}), 401
             return redirect(url_for("login"))
         user = get_user(email)
-        if not user or not user["paid"]:
+        if not user or not _has_access(user):
             session.clear()
             if _is_api_path():
                 return jsonify({"success": False, "error": "Unauthorized"}), 401
@@ -136,7 +147,7 @@ def login():
         if not check_password_hash(user["password_hash"], password):
             return render_template("login.html", error="Incorrect password.")
 
-        if not user["paid"]:
+        if not _has_access(user):
             return render_template("login.html", error="Please purchase access before logging in.")
 
         session["email"] = email
@@ -196,7 +207,7 @@ def magic_login():
     if datetime.now(timezone.utc) > expires:
         return render_template("login.html", error="This link has expired. Please request a new one.")
 
-    if not user["paid"]:
+    if not _has_access(user):
         return redirect(url_for("index") + "?error=not_paid")
 
     clear_magic_token(user["email"])
@@ -297,6 +308,47 @@ def stripe_webhook():
                 print(f"[webhook] failed to send magic link to {email}: {exc}")
 
     return jsonify({"received": True})
+
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
+
+@app.route("/admin/grant-trial", methods=["POST"])
+def admin_grant_trial():
+    secret = os.environ.get("ADMIN_SECRET", "")
+    if not secret or request.headers.get("X-Admin-Secret") != secret:
+        return jsonify({"error": "Forbidden"}), 403
+
+    data  = request.get_json(force=True)
+    email = (data.get("email") or "").strip().lower()
+    days  = int(data.get("days", 7))
+
+    if not email or "@" not in email:
+        return jsonify({"error": "Invalid email"}), 400
+
+    grant_trial(email, days)
+
+    token   = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=48)
+    set_magic_token(email, token, expires)
+
+    magic_url = request.host_url.rstrip("/") + url_for("magic_login", token=token)
+    try:
+        resend.Emails.send({
+            "from":    RESEND_FROM,
+            "to":      [email],
+            "subject": "You're invited to try ClipSnap",
+            "html": (
+                f"<p>You've been given {days}-day free access to ClipSnap. "
+                "Click the link below to log in (expires in 48 hours).</p>"
+                f'<p><a href="{magic_url}">{magic_url}</a></p>'
+            ),
+        })
+    except Exception as exc:
+        print(f"[admin] failed to send invite to {email}: {exc}")
+        return jsonify({"ok": True, "email": email, "days": days, "magic_url": magic_url,
+                        "warning": f"Trial granted but email failed: {exc}"})
+
+    return jsonify({"ok": True, "email": email, "days": days})
 
 
 # ── Protected app ─────────────────────────────────────────────────────────────

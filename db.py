@@ -1,6 +1,6 @@
 import os
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -36,6 +36,7 @@ def init_db():
             )
         """)
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_expires TIMESTAMPTZ")
 
 
 def get_user(email: str):
@@ -78,6 +79,19 @@ def clear_magic_token(email: str):
         cur.execute(
             "UPDATE users SET magic_token = NULL, token_expires = NULL WHERE email = %s",
             (email,),
+        )
+
+
+def grant_trial(email: str, days: int):
+    expires = datetime.now(timezone.utc) + timedelta(days=days)
+    with _db() as cur:
+        cur.execute(
+            """
+            INSERT INTO users (email, trial_expires)
+            VALUES (%s, %s)
+            ON CONFLICT (email) DO UPDATE SET trial_expires = %s
+            """,
+            (email, expires, expires),
         )
 
 

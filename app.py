@@ -18,7 +18,12 @@ from werkzeug.utils import secure_filename
 from cleanup import cleanup_old_files
 from compositor import compose_video
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
-                init_db, set_magic_token, set_password, upsert_user_paid)
+                init_db, set_magic_token, set_password, upsert_user_paid,
+                create_compose_session, get_compose_session,
+                update_compose_session_options, increment_variation_count,
+                list_all_session_ids_with_clip_paths, delete_compose_session,
+                create_render_job, get_render_job,
+                set_render_job_done, set_render_job_error)
 
 DATA_DIR   = os.environ.get("DATA_DIR", ".")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
@@ -37,11 +42,6 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM    = os.environ.get("RESEND_FROM_EMAIL", "noreply@clipsnap.app")
 
-# In-memory composition session store  {session_id: {...}}
-sessions: dict = {}
-# In-memory job store  {job_id: {status, result, error}}
-jobs: dict = {}
-
 try:
     MAX_CONCURRENT_RENDERS = int(os.environ.get("MAX_CONCURRENT_RENDERS", "2"))
 except ValueError:
@@ -54,15 +54,15 @@ except Exception as exc:
     print(f"[db] init failed (will retry on first request): {exc}")
 
 
-def _purge_orphaned_sessions(sessions_dict):
+def _purge_orphaned_sessions():
     removed = 0
-    for sid in list(sessions_dict.keys()):
-        s = sessions_dict[sid]
-        paths = s["hook_clips"] + s["middle_clips"] + s["final_clips"]
-        if s["audio"]:
-            paths.append(s["audio"])
+    for row in list_all_session_ids_with_clip_paths():
+        sid = row["session_id"]
+        paths = row["hook_clips"] + row["middle_clips"] + row["final_clips"]
+        if row["audio"]:
+            paths.append(row["audio"])
         if any(not os.path.exists(p) for p in paths):
-            del sessions_dict[sid]
+            delete_compose_session(sid)
             removed += 1
     if removed:
         print(f"[cleanup] sessions: purged {removed} orphaned session(s)")
@@ -84,7 +84,7 @@ def _cleanup_loop():
     while True:
         try:
             cleanup_old_files(UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, max_age)
-            _purge_orphaned_sessions(sessions)
+            _purge_orphaned_sessions()
         except Exception as exc:
             print(f"[cleanup] error: {exc}")
         time.sleep(interval * 60)
@@ -506,24 +506,24 @@ def compose():
     hook_clips, middle_clips, final_clips = _classify_clips(saved_clips)
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
 
-    sessions[session_id] = {
-        "hook_clips":            hook_clips,
-        "middle_clips":          middle_clips,
-        "final_clips":           final_clips,
-        "audio":                 audio_path,
-        "duration_range":        duration_range,
-        "music_start":           music_start,
-        "music_end":             music_end,
-        "clip_audios":           clip_audios,
-        "use_original_duration": use_original_duration,
-        "output_format":         request.form.get("output_format", "9:16"),
-        "fit_mode":              request.form.get("fit_mode", "crop"),
-        "clip_trims":            clip_trims,
-        "variation_count":       0,
-    }
+    create_compose_session(
+        session_id=session_id,
+        hook_clips=hook_clips,
+        middle_clips=middle_clips,
+        final_clips=final_clips,
+        audio=audio_path,
+        duration_range=duration_range,
+        music_start=music_start,
+        music_end=music_end,
+        clip_audios=clip_audios,
+        use_original_duration=use_original_duration,
+        output_format=request.form.get("output_format", "9:16"),
+        fit_mode=request.form.get("fit_mode", "crop"),
+        clip_trims=clip_trims,
+    )
 
     job_id = uuid.uuid4().hex[:10]
-    jobs[job_id] = {"status": "processing", "result": None, "error": None}
+    create_render_job(job_id)
     threading.Thread(target=_render_job, args=(session_id, text_opts, False, job_id), daemon=True).start()
     return jsonify({"success": True, "session_id": session_id, "job_id": job_id})
 
@@ -534,27 +534,26 @@ def variation():
     data       = request.get_json(force=True)
     session_id = data.get("session_id", "")
 
-    if session_id not in sessions:
+    if not get_compose_session(session_id):
         return jsonify({"success": False, "error": "Session not found — please re-upload files"}), 404
 
     text_opts = _text_opts_from_json(data)
-    if "use_original_duration" in data:
-        sessions[session_id]["use_original_duration"] = bool(data["use_original_duration"])
-    if "output_format" in data:
-        sessions[session_id]["output_format"] = data["output_format"]
-    if "fit_mode" in data:
-        sessions[session_id]["fit_mode"] = data["fit_mode"]
+    update_compose_session_options(
+        session_id,
+        use_original_duration=bool(data["use_original_duration"]) if "use_original_duration" in data else None,
+        output_format=data["output_format"] if "output_format" in data else None,
+        fit_mode=data["fit_mode"] if "fit_mode" in data else None,
+    )
 
     job_id = uuid.uuid4().hex[:10]
-    jobs[job_id] = {"status": "processing", "result": None, "error": None}
+    create_render_job(job_id)
     threading.Thread(target=_render_job, args=(session_id, text_opts, True, job_id), daemon=True).start()
     return jsonify({"success": True, "job_id": job_id})
 
 
 def _run_composition(session_id, text_opts, variation, job_id):
-    s    = sessions[session_id]
-    s["variation_count"] += 1
-    vnum = s["variation_count"]
+    vnum = increment_variation_count(session_id)
+    s    = get_compose_session(session_id)
 
     temp_dir = os.path.join(TEMP_DIR, f"{session_id}_v{vnum}")
     os.makedirs(temp_dir, exist_ok=True)
@@ -591,12 +590,10 @@ def _run_composition(session_id, text_opts, variation, job_id):
         }
         if result.get("warning"):
             resp["warning"] = result["warning"]
-        jobs[job_id]["status"] = "done"
-        jobs[job_id]["result"] = resp
+        set_render_job_done(job_id, resp)
     except Exception as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["error"]  = str(exc)
+        set_render_job_error(job_id, str(exc))
 
 
 def _render_job(session_id, text_opts, variation, job_id):
@@ -607,7 +604,7 @@ def _render_job(session_id, text_opts, variation, job_id):
 @app.route("/status/<job_id>")
 @login_required
 def job_status(job_id):
-    job = jobs.get(job_id)
+    job = get_render_job(job_id)
     if not job:
         return jsonify({"status": "error", "error": "Job not found"}), 404
     if job["status"] == "done":

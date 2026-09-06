@@ -42,6 +42,13 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM    = os.environ.get("RESEND_FROM_EMAIL", "noreply@clipsnap.app")
 
+# NOTE: цей семафор per-process. З N gunicorn workers реальний максимум одночасних
+# FFmpeg-рендерів = MAX_CONCURRENT_RENDERS × N. Якщо RENDERS_TOTAL має бути обмежений
+# на рівні всього сервісу (не на процес) — MAX_CONCURRENT_RENDERS в Railway env variables
+# має бути зменшений відповідно (наприклад, якщо хочемо максимум 2 рендери на весь сервіс
+# при 3 workers — виставити MAX_CONCURRENT_RENDERS=1, що дасть 1×3=3, найближче зверху;
+# точний глобальний ліміт вимагав би distributed lock через Postgres advisory lock —
+# поза скоупом зараз).
 try:
     MAX_CONCURRENT_RENDERS = int(os.environ.get("MAX_CONCURRENT_RENDERS", "2"))
 except ValueError:

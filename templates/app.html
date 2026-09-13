@@ -1775,14 +1775,20 @@
   }
 
   // ── Drag-and-drop reorder ─────────────────────────────────────────────────
-  let _dragSrcId = null;
+  let _dragSrcId   = null;
+  let _dragAllowed = false;
+
+  document.addEventListener('mouseup', () => { _dragAllowed = false; });
 
   function initDragListeners() {
     document.querySelectorAll('.clip-item[draggable]').forEach(item => {
       const clipId = parseInt(item.dataset.clipid);
 
+      const handle = item.querySelector('.drag-handle');
+      if (handle) handle.addEventListener('mousedown', () => { _dragAllowed = true; });
+
       item.addEventListener('dragstart', e => {
-        if (!e.target.closest('.drag-handle')) { e.preventDefault(); return; }
+        if (!_dragAllowed) { e.preventDefault(); return; }
         _dragSrcId = clipId;
         setTimeout(() => item.classList.add('dragging'), 0);
         e.dataTransfer.effectAllowed = 'move';

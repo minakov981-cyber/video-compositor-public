@@ -143,7 +143,9 @@
     font-size: .8rem;
     color: var(--text-dim);
     min-height: 1.2em;
+    transition: color .2s;
   }
+  #clips-duration.over-limit { color: #ef4444; }
   .clip-row {
     display: flex; align-items: center; gap: 8px;
     background: var(--bg-elevated);
@@ -1256,9 +1258,10 @@
   function updateClipsDuration() {
     const el = document.getElementById('clips-duration');
     const n  = uploadedClips.length;
-    if (!n) { el.textContent = ''; return; }
+    if (!n) { el.textContent = ''; el.classList.remove('over-limit'); return; }
 
     const mode = getSelectedDurationMode();
+    let maxSec = 0;
 
     if (mode === 'auto') {
       const raw   = (document.getElementById('duration-range').value || '2').trim();
@@ -1266,22 +1269,27 @@
       if (parts.length >= 2) {
         const lo = Math.min(parts[0], parts[1]) * n;
         const hi = Math.max(parts[0], parts[1]) * n;
+        maxSec = hi;
         let text = `${fmtSec(lo)} – ${fmtSec(hi)}`;
         if (hi >= 60) text += ` (${fmtMin(lo)} – ${fmtMin(hi)})`;
         el.textContent = `Estimated duration: ${text}`;
       } else if (parts.length === 1) {
-        el.textContent = `Estimated duration: ${fmt(parts[0] * n)}`;
+        maxSec = parts[0] * n;
+        el.textContent = `Estimated duration: ${fmt(maxSec)}`;
       } else {
         el.textContent = '';
       }
     } else {
-      if (!uploadedClips.every(c => c.duration != null)) { el.textContent = ''; return; }
+      if (!uploadedClips.every(c => c.duration != null)) { el.textContent = ''; el.classList.remove('over-limit'); return; }
       let total = 0;
       uploadedClips.forEach(c => {
         total += (c.trimEnd ?? c.duration) - (c.trimStart ?? 0);
       });
+      maxSec = total;
       el.textContent = `Estimated duration: ${fmt(total)}`;
     }
+
+    el.classList.toggle('over-limit', maxSec > 180);
 
     function fmtSec(sec) {
       return sec % 1 === 0 ? `${sec}s` : `${sec.toFixed(1)}s`;

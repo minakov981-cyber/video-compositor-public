@@ -1267,7 +1267,7 @@
         const lo = Math.min(parts[0], parts[1]) * n;
         const hi = Math.max(parts[0], parts[1]) * n;
         let text = `${fmtSec(lo)} – ${fmtSec(hi)}`;
-        if (hi >= 60) text += ` · ${fmtMin(lo)} – ${fmtMin(hi)}`;
+        if (hi >= 60) text += ` (${fmtMin(lo)} – ${fmtMin(hi)})`;
         el.textContent = `Estimated duration: ${text}`;
       } else if (parts.length === 1) {
         el.textContent = `Estimated duration: ${fmt(parts[0] * n)}`;
@@ -1292,7 +1292,7 @@
       return `${m}m ${rem}s`;
     }
     function fmt(sec) {
-      return sec >= 60 ? `${fmtSec(sec)} · ${fmtMin(sec)}` : fmtSec(sec);
+      return sec >= 60 ? `${fmtSec(sec)} (${fmtMin(sec)})` : fmtSec(sec);
     }
   }
 

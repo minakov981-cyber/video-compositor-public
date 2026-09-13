@@ -1253,18 +1253,12 @@
         el.textContent = '';
       }
     } else {
-      let total = 0, known = 0, unknown = 0;
+      if (!uploadedClips.every(c => c.duration != null)) { el.textContent = ''; return; }
+      let total = 0;
       uploadedClips.forEach(c => {
-        const s = c.trimStart ?? 0;
-        const e = c.trimEnd   ?? c.duration;
-        if (e == null) { unknown++; return; }
-        total += e - s;
-        known++;
+        total += (c.trimEnd ?? c.duration) - (c.trimStart ?? 0);
       });
-      if (known === 0) { el.textContent = ''; return; }
-      el.textContent = unknown > 0
-        ? `Estimated duration: ~${fmt(total)}+`
-        : `Estimated duration: ${fmt(total)}`;
+      el.textContent = `Estimated duration: ${fmt(total)}`;
     }
 
     function fmt(sec) {

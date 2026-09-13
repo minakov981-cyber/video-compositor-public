@@ -1150,11 +1150,12 @@
     const names = new Set(uploadedClips.map(c => c.file.name));
     files.forEach(f => {
       if (!names.has(f.name)) {
+        const clipId = clipIdCounter++;
         uploadedClips.push({
           file:           f,
           displayName:    f.name,
           blobUrl:        URL.createObjectURL(f),
-          clipId:         clipIdCounter++,
+          clipId,
           trimStart:      0,
           trimEnd:        null,
           duration:       null,
@@ -1163,9 +1164,28 @@
           trimOpen:       false,
           keepAudio:      false,
         });
+        loadClipDuration(clipId);
       }
     });
     renderClips();
+  }
+
+  async function loadClipDuration(clipId) {
+    const clip = uploadedClips.find(c => c.clipId === clipId);
+    if (!clip || clip.duration != null) return;
+    try {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.src     = clip.blobUrl;
+      await new Promise((resolve, reject) => {
+        video.onloadedmetadata = resolve;
+        video.onerror = () => reject(new Error('failed'));
+        setTimeout(() => reject(new Error('timeout')), 10000);
+      });
+      clip.duration = video.duration;
+      if (clip.trimEnd === null) clip.trimEnd = video.duration;
+      updateClipsDuration();
+    } catch (_) {}
   }
 
   function removeClipById(clipId) {

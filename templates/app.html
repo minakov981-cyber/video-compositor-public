@@ -263,7 +263,27 @@
   .alert-info  { background: var(--accent-soft); border: 1px solid rgba(255,142,0,.3); color: var(--accent); }
 
   /* ── Output panel ── */
-  #output-section { display: none; }
+  #output-content { display: none; }
+
+  #output-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    min-height: 320px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+  #output-placeholder svg {
+    opacity: .25;
+  }
+  #output-placeholder p {
+    font-size: .85rem;
+    opacity: .5;
+    max-width: 180px;
+    line-height: 1.5;
+  }
 
   .video-wrap {
     position: relative;
@@ -741,30 +761,42 @@
     <div class="card">
       <div class="card-title">Output Preview</div>
 
-      <div class="video-wrap">
-        <video id="output-video" controls playsinline></video>
+      <!-- Placeholder (shown until first render) -->
+      <div id="output-placeholder">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="3"/>
+          <polygon points="10,8 16,12 10,16"/>
+        </svg>
+        <p>Your video will appear here after rendering</p>
       </div>
 
-      <div class="video-meta" id="video-meta"></div>
-
-      <hr class="divider">
-
-      <!-- New variation -->
-      <div id="variation-section">
-        <div class="card-title">New Variation</div>
-        <p style="font-size:.83rem;color:var(--text-dim);margin-bottom:14px">
-          Middle clips will be reshuffled with new random durations.
-        </p>
-
-        <div class="field">
-          <label>Override text overlay (leave blank to keep current)</label>
-          <textarea id="variation-text" rows="3" placeholder="New text or leave blank&#10;Press Enter for new lines"></textarea>
+      <!-- Output content (hidden until video is ready) -->
+      <div id="output-content">
+        <div class="video-wrap">
+          <video id="output-video" controls playsinline></video>
         </div>
 
-        <button class="btn btn-secondary" id="variation-btn" onclick="createVariation()">
-          New Variation
-        </button>
-        <div id="variation-error"></div>
+        <div class="video-meta" id="video-meta"></div>
+
+        <hr class="divider">
+
+        <!-- New variation -->
+        <div id="variation-section">
+          <div class="card-title">New Variation</div>
+          <p style="font-size:.83rem;color:var(--text-dim);margin-bottom:14px">
+            Middle clips will be reshuffled with new random durations.
+          </p>
+
+          <div class="field">
+            <label>Override text overlay (leave blank to keep current)</label>
+            <textarea id="variation-text" rows="3" placeholder="New text or leave blank&#10;Press Enter for new lines"></textarea>
+          </div>
+
+          <button class="btn btn-secondary" id="variation-btn" onclick="createVariation()">
+            New Variation
+          </button>
+          <div id="variation-error"></div>
+        </div>
       </div>
     </div>
 
@@ -1549,7 +1581,6 @@
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function showOutput(filename, totalDuration, clipOrder, warning) {
-    const sec  = document.getElementById('output-section');
     const vid  = document.getElementById('output-video');
     const meta = document.getElementById('video-meta');
 
@@ -1575,8 +1606,9 @@
       ${warnHtml}
     `;
 
-    sec.style.display = 'block';
-    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('output-placeholder').style.display = 'none';
+    document.getElementById('output-content').style.display = 'block';
+    document.getElementById('output-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function pollStatus(jobId, errorId) {

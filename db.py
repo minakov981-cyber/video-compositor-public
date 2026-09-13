@@ -56,6 +56,7 @@ def init_db():
                 created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS ordered_clips JSONB")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS render_jobs (
                 job_id     TEXT PRIMARY KEY,
@@ -147,6 +148,7 @@ def create_compose_session(
     output_format: str,
     fit_mode: str,
     clip_trims: dict,
+    ordered_clips: list,
 ):
     with _db() as cur:
         cur.execute(
@@ -155,15 +157,15 @@ def create_compose_session(
                 session_id, hook_clips, middle_clips, final_clips,
                 audio, duration_range, music_start, music_end,
                 clip_audios, use_original_duration, output_format,
-                fit_mode, clip_trims
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                fit_mode, clip_trims, ordered_clips
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 session_id,
                 Json(hook_clips), Json(middle_clips), Json(final_clips),
                 audio, duration_range, music_start, music_end,
                 Json(clip_audios), use_original_duration, output_format,
-                fit_mode, Json(clip_trims),
+                fit_mode, Json(clip_trims), Json(ordered_clips),
             ),
         )
 
@@ -217,7 +219,7 @@ def increment_variation_count(session_id: str) -> int:
 def list_all_session_ids_with_clip_paths() -> list:
     with _db() as cur:
         cur.execute(
-            "SELECT session_id, hook_clips, middle_clips, final_clips, audio "
+            "SELECT session_id, hook_clips, middle_clips, final_clips, audio, ordered_clips "
             "FROM compose_sessions"
         )
         return [dict(row) for row in cur.fetchall()]

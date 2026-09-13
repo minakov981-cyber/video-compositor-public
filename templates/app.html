@@ -169,6 +169,16 @@
   }
   .clip-name:hover { color: var(--accent); }
 
+  .drag-handle {
+    display: flex; align-items: center; color: var(--text-faint);
+    cursor: grab; flex-shrink: 0; padding: 0 2px;
+    opacity: .4; transition: opacity .15s;
+  }
+  .drag-handle:hover { opacity: .8; }
+  .clip-item.dragging { opacity: .4; }
+  .clip-item.drag-over > .clip-row { border-color: var(--accent); background: var(--accent-soft); }
+  .badge-intro { background: rgba(251,191,36,.15); color: #fbbf24; }
+
   .dup-count {
     font-size: .7rem; font-family: var(--mono); font-weight: 600;
     flex-shrink: 0; opacity: .85;
@@ -565,7 +575,7 @@
         </svg>
         <p>Drag &amp; drop clips here or <strong>click to browse</strong></p>
         <p style="margin-top:5px;font-size:.78rem;font-family:var(--mono)">
-          Files with <strong>hook</strong> in the name go first &nbsp;·&nbsp;
+          Files with <strong>intro</strong> in the name go first &nbsp;·&nbsp;
           <strong>final</strong> goes last
         </p>
       </div>
@@ -1214,11 +1224,9 @@
 
   function clipLabel(name) {
     const n = name.toLowerCase();
-    if (n.includes('hook'))  return { text: 'HOOK',  cls: 'badge-hook'  };
+    if (n.includes('intro')) return { text: 'INTRO', cls: 'badge-intro' };
     if (n.includes('final')) return { text: 'FINAL', cls: 'badge-final' };
-    const stem = name.replace(/\.[^.]+$/, '');
-    if (/^\d+$/.test(stem))  return { text: `#${stem}`, cls: 'badge-num' };
-    return { text: 'CLIP', cls: 'badge-mid' };
+    return null;
   }
 
   function renderClips() {
@@ -1234,6 +1242,7 @@
 
     list.innerHTML = uploadedClips.map(c => {
       const lbl      = clipLabel(c.displayName);
+      const badgeHtml = lbl ? `<span class="badge ${lbl.cls}">${lbl.text}</span>` : '';
       const isDup    = dupColor[c.file.name] !== undefined;
       const dupCls   = isDup ? `dup-${dupColor[c.file.name]}` : '';
       const dupBadge = isDup ? `<span class="dup-count">×${nameCount[c.file.name]}</span>` : '';
@@ -1242,9 +1251,10 @@
         : '<span class="filmstrip-loading">Extracting frames…</span>';
 
       return `
-        <div class="clip-item" id="clip-item-${c.clipId}">
+        <div class="clip-item" id="clip-item-${c.clipId}" draggable="true" data-clipid="${c.clipId}">
           <div class="clip-row ${c.trimOpen ? 'trim-open' : ''} ${dupCls}" data-clipid="${c.clipId}">
-            <span class="badge ${lbl.cls}">${lbl.text}</span>
+            <span class="drag-handle"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="2" r="1.3"/><circle cx="7" cy="2" r="1.3"/><circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="3" cy="12" r="1.3"/><circle cx="7" cy="12" r="1.3"/></svg></span>
+            ${badgeHtml}
             <span class="clip-name" title="${c.displayName}" onclick="startEditById(${c.clipId})">${c.displayName}</span>
             ${dupBadge}
             <button class="clip-audio-btn ${c.keepAudio ? 'active' : ''}" onclick="toggleClipAudio(${c.clipId})" title="${c.keepAudio ? 'Mute clip audio' : 'Keep clip audio'}">
@@ -1278,6 +1288,7 @@
       }
     });
     updateClipsDuration();
+    initDragListeners();
   }
 
   function updateClipsDuration() {
@@ -1548,10 +1559,19 @@
       span.style.display  = '';
       span.textContent    = clip.displayName;
       span.title          = clip.displayName;
-      const lbl           = clipLabel(clip.displayName);
-      const badge         = row.querySelector('.badge');
-      badge.className     = `badge ${lbl.cls}`;
-      badge.textContent   = lbl.text;
+      const lbl   = clipLabel(clip.displayName);
+      const badge = row.querySelector('.badge');
+      if (lbl && badge) {
+        badge.className   = `badge ${lbl.cls}`;
+        badge.textContent = lbl.text;
+      } else if (!lbl && badge) {
+        badge.remove();
+      } else if (lbl && !badge) {
+        const newBadge = document.createElement('span');
+        newBadge.className   = `badge ${lbl.cls}`;
+        newBadge.textContent = lbl.text;
+        row.insertBefore(newBadge, row.querySelector('.clip-name'));
+      }
     }
 
     input.addEventListener('blur', commit);
@@ -1701,7 +1721,7 @@
 
     const orderHtml = (clipOrder || []).map(name => {
       const n = name.toLowerCase();
-      const cls = n.includes('hook') ? 'is-hook' : n.includes('final') ? 'is-final' : '';
+      const cls = n.includes('intro') ? 'is-hook' : n.includes('final') ? 'is-final' : '';
       return `<span class="co-badge ${cls}">${name}</span>`;
     }).join('');
 
@@ -1752,6 +1772,52 @@
 
   function clearError(containerId) {
     document.getElementById(containerId).innerHTML = '';
+  }
+
+  // ── Drag-and-drop reorder ─────────────────────────────────────────────────
+  let _dragSrcId = null;
+
+  function initDragListeners() {
+    document.querySelectorAll('.clip-item[draggable]').forEach(item => {
+      const clipId = parseInt(item.dataset.clipid);
+
+      item.addEventListener('dragstart', e => {
+        if (!e.target.closest('.drag-handle')) { e.preventDefault(); return; }
+        _dragSrcId = clipId;
+        setTimeout(() => item.classList.add('dragging'), 0);
+        e.dataTransfer.effectAllowed = 'move';
+      });
+
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        document.querySelectorAll('.clip-item').forEach(i => i.classList.remove('drag-over'));
+      });
+
+      item.addEventListener('dragover', e => {
+        if (_dragSrcId === null || _dragSrcId === clipId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        document.querySelectorAll('.clip-item').forEach(i => i.classList.remove('drag-over'));
+        item.classList.add('drag-over');
+      });
+
+      item.addEventListener('dragleave', e => {
+        if (!item.contains(e.relatedTarget)) item.classList.remove('drag-over');
+      });
+
+      item.addEventListener('drop', e => {
+        e.preventDefault();
+        item.classList.remove('drag-over');
+        if (_dragSrcId === null || _dragSrcId === clipId) return;
+        const srcIdx = uploadedClips.findIndex(c => c.clipId === _dragSrcId);
+        const tgtIdx = uploadedClips.findIndex(c => c.clipId === clipId);
+        if (srcIdx === -1 || tgtIdx === -1) return;
+        const [moved] = uploadedClips.splice(srcIdx, 1);
+        uploadedClips.splice(tgtIdx, 0, moved);
+        _dragSrcId = null;
+        renderClips();
+      });
+    });
   }
 </script>
 </body>

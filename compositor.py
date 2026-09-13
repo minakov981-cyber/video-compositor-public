@@ -2,7 +2,6 @@ import functools
 import json
 import os
 import random
-import re
 import shutil
 import subprocess
 
@@ -267,44 +266,26 @@ def _build_blur_filter_complex(w, h, drawtext_filters=None):
     return fc
 
 
-def _split_middle_clips(clips):
-    """Return (numbered_sorted, mixed) from a list of middle clip paths.
-
-    numbered: stem is a pure integer (1.mp4, 14.mp4) — sorted ascending
-    mixed:    everything else — order preserved for caller to shuffle
-    """
-    numbered, mixed = [], []
-    for path in clips:
-        stem = os.path.splitext(os.path.basename(path))[0]
-        if re.fullmatch(r'\d+', stem):
-            numbered.append((int(stem), path))
-        else:
-            mixed.append(path)
-    numbered.sort(key=lambda x: x[0])
-    return [path for _, path in numbered], mixed
-
 
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
                   variation=False, music_start=0.0, music_end=None,
                   clip_audios=None, use_original_duration=False,
-                  output_format="9:16", fit_mode="crop", clip_trims=None):
+                  output_format="9:16", fit_mode="crop", clip_trims=None,
+                  ordered_clips=None):
     clip_trims  = clip_trims  or {}
     clip_audios = clip_audios or {}
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
     min_dur, max_dur = parse_duration_range(duration_range)
 
     if variation:
-        # Variations: all middle clips shuffled together regardless of filename
         pool = list(middle_clips)
         random.shuffle(pool)
         ordered = hook_clips + pool + final_clips
+    elif ordered_clips:
+        ordered = list(ordered_clips)
     else:
-        # Initial composition: numbered clips first in ascending order, mixed clips shuffled
-        numbered, mixed = _split_middle_clips(middle_clips)
-        shuffled_mixed = list(mixed)
-        random.shuffle(shuffled_mixed)
-        ordered = hook_clips + numbered + shuffled_mixed + final_clips
+        ordered = hook_clips + middle_clips + final_clips
 
     if not ordered:
         raise ValueError("No clips provided")

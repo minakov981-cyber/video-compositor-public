@@ -423,16 +423,16 @@ def _text_opts_from_json(data):
 
 
 def _classify_clips(paths):
-    hook, final, middle = [], [], []
+    intro, final, middle = [], [], []
     for p in paths:
         name = os.path.basename(p).lower()
-        if "hook" in name:
-            hook.append(p)
+        if "intro" in name:
+            intro.append(p)
         elif "final" in name:
             final.append(p)
         else:
             middle.append(p)
-    return hook, middle, final
+    return intro, middle, final
 
 
 @app.route("/fonts")
@@ -512,12 +512,12 @@ def compose():
     except ValueError:
         music_end = None
 
-    hook_clips, middle_clips, final_clips = _classify_clips(saved_clips)
+    intro_clips, middle_clips, final_clips = _classify_clips(saved_clips)
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
 
     create_compose_session(
         session_id=session_id,
-        hook_clips=hook_clips,
+        hook_clips=intro_clips,
         middle_clips=middle_clips,
         final_clips=final_clips,
         audio=audio_path,
@@ -529,6 +529,7 @@ def compose():
         output_format=request.form.get("output_format", "9:16"),
         fit_mode=request.form.get("fit_mode", "crop"),
         clip_trims=clip_trims,
+        ordered_clips=saved_clips,
     )
 
     job_id = uuid.uuid4().hex[:10]
@@ -588,6 +589,7 @@ def _run_composition(session_id, text_opts, variation, job_id):
             fit_mode=s.get("fit_mode", "crop"),
             clip_trims=s.get("clip_trims", {}),
             temp_dir=temp_dir,
+            ordered_clips=s.get("ordered_clips") or [],
         )
         shutil.rmtree(temp_dir, ignore_errors=True)
         resp = {

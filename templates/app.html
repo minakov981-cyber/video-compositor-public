@@ -168,6 +168,23 @@
     cursor: text; transition: color .15s;
   }
   .clip-name:hover { color: var(--accent); }
+
+  .dup-count {
+    font-size: .7rem; font-family: var(--mono); font-weight: 600;
+    flex-shrink: 0; opacity: .85;
+  }
+  .dup-0 { border-left: 3px solid #f59e0b; }
+  .dup-0 .dup-count { color: #f59e0b; }
+  .dup-1 { border-left: 3px solid #38bdf8; }
+  .dup-1 .dup-count { color: #38bdf8; }
+  .dup-2 { border-left: 3px solid #a78bfa; }
+  .dup-2 .dup-count { color: #a78bfa; }
+  .dup-3 { border-left: 3px solid #34d399; }
+  .dup-3 .dup-count { color: #34d399; }
+  .dup-4 { border-left: 3px solid #f472b6; }
+  .dup-4 .dup-count { color: #f472b6; }
+  .dup-5 { border-left: 3px solid #fb923c; }
+  .dup-5 .dup-count { color: #fb923c; }
   .clip-name-input {
     flex: 1; min-width: 0;
     background: var(--bg-elevated);
@@ -1206,19 +1223,30 @@
 
   function renderClips() {
     const list = document.getElementById('clips-list');
-    if (!uploadedClips.length) { list.innerHTML = ''; return; }
+    if (!uploadedClips.length) { list.innerHTML = ''; updateClipsDuration(); return; }
+
+    // Build duplicate groups: fileName → { colorIdx, count }
+    const nameCount = {};
+    uploadedClips.forEach(c => { nameCount[c.file.name] = (nameCount[c.file.name] || 0) + 1; });
+    const dupNames = Object.keys(nameCount).filter(n => nameCount[n] > 1);
+    const dupColor = {};
+    dupNames.forEach((n, i) => { dupColor[n] = i % 6; });
 
     list.innerHTML = uploadedClips.map(c => {
-      const lbl = clipLabel(c.displayName);
+      const lbl      = clipLabel(c.displayName);
+      const isDup    = dupColor[c.file.name] !== undefined;
+      const dupCls   = isDup ? `dup-${dupColor[c.file.name]}` : '';
+      const dupBadge = isDup ? `<span class="dup-count">×${nameCount[c.file.name]}</span>` : '';
       const framesHtml = c.filmstripBuilt
         ? c.frameDataUrls.map(url => `<img src="${url}" class="filmstrip-frame">`).join('')
         : '<span class="filmstrip-loading">Extracting frames…</span>';
 
       return `
         <div class="clip-item" id="clip-item-${c.clipId}">
-          <div class="clip-row ${c.trimOpen ? 'trim-open' : ''}" data-clipid="${c.clipId}">
+          <div class="clip-row ${c.trimOpen ? 'trim-open' : ''} ${dupCls}" data-clipid="${c.clipId}">
             <span class="badge ${lbl.cls}">${lbl.text}</span>
             <span class="clip-name" title="${c.displayName}" onclick="startEditById(${c.clipId})">${c.displayName}</span>
+            ${dupBadge}
             <button class="clip-audio-btn ${c.keepAudio ? 'active' : ''}" onclick="toggleClipAudio(${c.clipId})" title="${c.keepAudio ? 'Mute clip audio' : 'Keep clip audio'}">
               <svg width="21" height="21" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 ${c.keepAudio

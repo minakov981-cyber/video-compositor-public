@@ -1264,9 +1264,11 @@
       const raw   = (document.getElementById('duration-range').value || '2').trim();
       const parts = raw.split('-').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
       if (parts.length >= 2) {
-        const lo = Math.min(parts[0], parts[1]);
-        const hi = Math.max(parts[0], parts[1]);
-        el.textContent = `Estimated duration: ${fmt(lo * n)} – ${fmt(hi * n)}`;
+        const lo = Math.min(parts[0], parts[1]) * n;
+        const hi = Math.max(parts[0], parts[1]) * n;
+        let text = `${fmtSec(lo)} – ${fmtSec(hi)}`;
+        if (hi >= 60) text += ` · ${fmtMin(lo)} – ${fmtMin(hi)}`;
+        el.textContent = `Estimated duration: ${text}`;
       } else if (parts.length === 1) {
         el.textContent = `Estimated duration: ${fmt(parts[0] * n)}`;
       } else {
@@ -1281,12 +1283,16 @@
       el.textContent = `Estimated duration: ${fmt(total)}`;
     }
 
-    function fmt(sec) {
-      const s = sec % 1 === 0 ? `${sec}s` : `${sec.toFixed(1)}s`;
-      if (sec < 60) return s;
+    function fmtSec(sec) {
+      return sec % 1 === 0 ? `${sec}s` : `${sec.toFixed(1)}s`;
+    }
+    function fmtMin(sec) {
       const m = Math.floor(sec / 60);
       const rem = Math.round(sec % 60);
-      return `${s} · ${m}m ${rem}s`;
+      return `${m}m ${rem}s`;
+    }
+    function fmt(sec) {
+      return sec >= 60 ? `${fmtSec(sec)} · ${fmtMin(sec)}` : fmtSec(sec);
     }
   }
 

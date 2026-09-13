@@ -1253,14 +1253,16 @@
         el.textContent = '';
       }
     } else {
-      let total = 0, anyUnknown = false;
+      let total = 0, known = 0, unknown = 0;
       uploadedClips.forEach(c => {
         const s = c.trimStart ?? 0;
         const e = c.trimEnd   ?? c.duration;
-        if (e == null) { anyUnknown = true; return; }
+        if (e == null) { unknown++; return; }
         total += e - s;
+        known++;
       });
-      el.textContent = anyUnknown
+      if (known === 0) { el.textContent = ''; return; }
+      el.textContent = unknown > 0
         ? `Estimated duration: ~${fmt(total)}+`
         : `Estimated duration: ${fmt(total)}`;
     }
@@ -1330,6 +1332,7 @@
 
       clip.duration = video.duration;
       if (clip.trimEnd === null) clip.trimEnd = video.duration;
+      updateClipsDuration();
 
       const NUM_FRAMES = 10;
       const cvs = document.createElement('canvas');

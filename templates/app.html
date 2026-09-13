@@ -1282,7 +1282,11 @@
     }
 
     function fmt(sec) {
-      return Number.isInteger(sec) || sec % 1 === 0 ? `${sec}s` : `${sec.toFixed(1)}s`;
+      const s = sec % 1 === 0 ? `${sec}s` : `${sec.toFixed(1)}s`;
+      if (sec < 60) return s;
+      const m = Math.floor(sec / 60);
+      const rem = Math.round(sec % 60);
+      return `${s} · ${m}m ${rem}s`;
     }
   }
 

@@ -140,6 +140,8 @@ def login_required(f):
 
 @app.route("/")
 def index():
+    if session.get("email"):
+        return redirect(url_for("app_page"))
     success = request.args.get("success") == "1"
     error   = request.args.get("error")
     return render_template("index.html", success=success, error=error)

@@ -137,6 +137,13 @@
 
   /* ── Clips list ── */
   #clips-list { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+  #clips-duration {
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--text-dim);
+    min-height: 1.2em;
+  }
   .clip-row {
     display: flex; align-items: center; gap: 8px;
     background: var(--bg-elevated);
@@ -563,7 +570,7 @@
         <div id="duration-auto-panel">
           <div class="field" style="margin-bottom:0">
             <label>Duration per clip (seconds)</label>
-            <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5">
+            <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5" oninput="updateClipsDuration()">
             <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
           </div>
         </div>
@@ -576,6 +583,7 @@
       </div>
 
       <div id="clips-list"></div>
+      <div id="clips-duration"></div>
     </div>
 
     <!-- Audio -->
@@ -910,6 +918,8 @@
         c.trimOpen  = false;
       });
       renderClips();
+    } else {
+      updateClipsDuration();
     }
   }
 
@@ -1220,6 +1230,44 @@
         requestAnimationFrame(() => updateHandles(c.clipId));
       }
     });
+    updateClipsDuration();
+  }
+
+  function updateClipsDuration() {
+    const el = document.getElementById('clips-duration');
+    const n  = uploadedClips.length;
+    if (!n) { el.textContent = ''; return; }
+
+    const mode = getSelectedDurationMode();
+
+    if (mode === 'auto') {
+      const raw   = (document.getElementById('duration-range').value || '2').trim();
+      const parts = raw.split('-').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
+      if (parts.length >= 2) {
+        const lo = Math.min(parts[0], parts[1]);
+        const hi = Math.max(parts[0], parts[1]);
+        el.textContent = `Estimated duration: ${fmt(lo * n)} – ${fmt(hi * n)}`;
+      } else if (parts.length === 1) {
+        el.textContent = `Estimated duration: ${fmt(parts[0] * n)}`;
+      } else {
+        el.textContent = '';
+      }
+    } else {
+      let total = 0, anyUnknown = false;
+      uploadedClips.forEach(c => {
+        const s = c.trimStart ?? 0;
+        const e = c.trimEnd   ?? c.duration;
+        if (e == null) { anyUnknown = true; return; }
+        total += e - s;
+      });
+      el.textContent = anyUnknown
+        ? `Estimated duration: ~${fmt(total)}+`
+        : `Estimated duration: ${fmt(total)}`;
+    }
+
+    function fmt(sec) {
+      return Number.isInteger(sec) || sec % 1 === 0 ? `${sec}s` : `${sec.toFixed(1)}s`;
+    }
   }
 
   // ── Clip audio toggle ─────────────────────────────────────────────────────
@@ -1406,6 +1454,7 @@
         ? `<strong>Full clip</strong> &nbsp;·&nbsp; ${dur.toFixed(2)}s`
         : `<strong>${s.toFixed(2)}s → ${e.toFixed(2)}s</strong> &nbsp;·&nbsp; ${sel.toFixed(2)}s selected`;
     }
+    updateClipsDuration();
   }
 
   // ── Inline name edit ──────────────────────────────────────────────────────

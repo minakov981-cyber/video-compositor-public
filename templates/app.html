@@ -1149,25 +1149,22 @@
   clipInput.addEventListener('change', e => { addClips(Array.from(e.target.files)); e.target.value = ''; });
 
   function addClips(files) {
-    const names = new Set(uploadedClips.map(c => c.file.name));
     files.forEach(f => {
-      if (!names.has(f.name)) {
-        const clipId = clipIdCounter++;
-        uploadedClips.push({
-          file:           f,
-          displayName:    f.name,
-          blobUrl:        URL.createObjectURL(f),
-          clipId,
-          trimStart:      0,
-          trimEnd:        null,
-          duration:       null,
-          filmstripBuilt: false,
-          frameDataUrls:  [],
-          trimOpen:       false,
-          keepAudio:      false,
-        });
-        loadClipDuration(clipId);
-      }
+      const clipId = clipIdCounter++;
+      uploadedClips.push({
+        file:           f,
+        displayName:    f.name,
+        blobUrl:        URL.createObjectURL(f),
+        clipId,
+        trimStart:      0,
+        trimEnd:        null,
+        duration:       null,
+        filmstripBuilt: false,
+        frameDataUrls:  [],
+        trimOpen:       false,
+        keepAudio:      false,
+      });
+      loadClipDuration(clipId);
     });
     renderClips();
   }

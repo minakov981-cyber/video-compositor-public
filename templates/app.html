@@ -656,6 +656,16 @@
             <input type="number" id="music-end" min="0" step="0.1" placeholder="full track">
           </div>
         </div>
+        <div style="margin-top:12px; display:flex; align-items:center; gap:12px">
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:.8rem;color:var(--text-dim);font-family:var(--mono)">
+            <input type="checkbox" id="music-fade-out" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer" onchange="document.getElementById('music-fade-dur-wrap').style.display=this.checked?'flex':'none'">
+            Fade out
+          </label>
+          <div id="music-fade-dur-wrap" style="display:none;align-items:center;gap:6px">
+            <input type="number" id="music-fade-duration" min="0.5" max="10" step="0.5" value="2" style="width:64px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:5px 8px;font-size:.85rem;outline:none">
+            <span style="color:var(--text-dim);font-size:.8rem;font-family:var(--mono)">sec</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1638,8 +1648,10 @@
     fd.append('audio',          audioFile);
     fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
     fd.append('use_original_duration', getSelectedDurationMode() === 'manual');
-    fd.append('music_start',    document.getElementById('music-start').value);
-    fd.append('music_end',      document.getElementById('music-end').value.trim());
+    fd.append('music_start',         document.getElementById('music-start').value);
+    fd.append('music_end',           document.getElementById('music-end').value.trim());
+    fd.append('music_fade_out',      document.getElementById('music-fade-out').checked);
+    fd.append('music_fade_duration', document.getElementById('music-fade-duration').value || '2');
     fd.append('output_format',  getSelectedFormat());
     fd.append('fit_mode',       getSelectedFitMode());
     fd.append('text',           document.getElementById('overlay-text').value);

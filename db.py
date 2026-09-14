@@ -57,6 +57,8 @@ def init_db():
             )
         """)
         cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS ordered_clips JSONB")
+        cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS music_fade_out BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS music_fade_duration DOUBLE PRECISION NOT NULL DEFAULT 2")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS render_jobs (
                 job_id     TEXT PRIMARY KEY,
@@ -143,6 +145,8 @@ def create_compose_session(
     duration_range: str,
     music_start: float,
     music_end,
+    music_fade_out: bool,
+    music_fade_duration: float,
     clip_audios: dict,
     use_original_duration: bool,
     output_format: str,
@@ -157,8 +161,9 @@ def create_compose_session(
                 session_id, hook_clips, middle_clips, final_clips,
                 audio, duration_range, music_start, music_end,
                 clip_audios, use_original_duration, output_format,
-                fit_mode, clip_trims, ordered_clips
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                fit_mode, clip_trims, ordered_clips,
+                music_fade_out, music_fade_duration
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 session_id,
@@ -166,6 +171,7 @@ def create_compose_session(
                 audio, duration_range, music_start, music_end,
                 Json(clip_audios), use_original_duration, output_format,
                 fit_mode, Json(clip_trims), Json(ordered_clips),
+                music_fade_out, music_fade_duration,
             ),
         )
 

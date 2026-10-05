@@ -1753,10 +1753,17 @@
   }
 
   async function pollStatus(jobId, errorId) {
-    while (true) {
+    const MAX_ATTEMPTS = 120; // 120 × 2.5s = 5 minutes
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
       await new Promise(r => setTimeout(r, 2500));
-      const res  = await fetch(`/status/${jobId}`);
-      const data = await res.json();
+      let data;
+      try {
+        const res = await fetch(`/status/${jobId}`);
+        data = await res.json();
+      } catch (_) {
+        // transient network error — keep trying
+        continue;
+      }
       if (data.status === 'done') {
         const r = data.result;
         showOutput(r.output, r.total_duration, r.clip_order, r.warning);
@@ -1767,6 +1774,7 @@
         return;
       }
     }
+    showError(errorId, 'Render timed out after 5 minutes. Please try again.');
   }
 
   function setLoading(btnId, loading, label) {

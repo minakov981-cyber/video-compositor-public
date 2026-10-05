@@ -477,9 +477,17 @@ def compose():
     saved_clips = []
     clip_trims  = {}
     clip_audios = {}
+    used_names  = {}
     for i, f in enumerate(clip_files):
         display_name = clip_names[i] if i < len(clip_names) else (f.filename or f"clip_{i}.mp4")
-        dest = os.path.join(session_dir, secure_filename(display_name))
+        safe_name    = secure_filename(display_name) or f"clip_{i}.mp4"
+        if safe_name in used_names:
+            used_names[safe_name] += 1
+            base, ext = os.path.splitext(safe_name)
+            safe_name = f"{base}_{used_names[safe_name]}{ext}"
+        else:
+            used_names[safe_name] = 1
+        dest = os.path.join(session_dir, safe_name)
         f.save(dest)
         saved_clips.append(dest)
         if display_name in clip_trims_raw:

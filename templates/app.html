@@ -764,14 +764,6 @@
           </div>
 
           <div class="field">
-            <label>Text Color</label>
-            <div class="color-row">
-              <input type="color" id="text-color-picker" value="#ffffff">
-              <input type="text"  id="text-color-hex"    value="#ffffff">
-            </div>
-          </div>
-
-          <div class="field">
             <label>Text Style</label>
             <select id="text-style" onchange="updateTextStyle()">
               <option value="box" selected>Box — solid background</option>
@@ -780,14 +772,24 @@
             </select>
           </div>
 
-          <div id="box-controls">
-            <div class="field">
+          <div class="field-row" style="margin-bottom:18px">
+            <div class="field" style="margin:0">
+              <label>Text Color</label>
+              <div class="color-row">
+                <input type="color" id="text-color-picker" value="#ffffff">
+                <input type="text"  id="text-color-hex"    value="#ffffff">
+              </div>
+            </div>
+            <div class="field" id="box-color-field" style="margin:0">
               <label>Box Color</label>
               <div class="color-row">
                 <input type="color" id="box-color-picker" value="#000000">
                 <input type="text"  id="box-color-hex"    value="#000000">
               </div>
             </div>
+          </div>
+
+          <div id="box-controls">
             <div class="field">
               <label>Box Opacity — <span id="box-opacity-value">60</span>%</label>
               <input type="range" id="box-opacity" min="0" max="100" value="60">
@@ -1061,6 +1063,7 @@
   function updateTextStyle() {
     const isBox = document.getElementById('text-style').value === 'box';
     document.getElementById('box-controls').style.display = isBox ? 'block' : 'none';
+    document.getElementById('box-color-field').style.display = isBox ? '' : 'none';
     updateTextPreview();
   }
 

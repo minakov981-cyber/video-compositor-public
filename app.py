@@ -465,14 +465,18 @@ def compose():
         clip_names = []
 
     try:
-        clip_trims_raw = json.loads(request.form.get("clip_trims", "{}"))
+        clip_trims_raw = json.loads(request.form.get("clip_trims", "[]"))
+        if not isinstance(clip_trims_raw, list):
+            clip_trims_raw = []
     except Exception:
-        clip_trims_raw = {}
+        clip_trims_raw = []
 
     try:
-        clip_audios_raw = json.loads(request.form.get("clip_audios", "{}"))
+        clip_audios_raw = json.loads(request.form.get("clip_audios", "[]"))
+        if not isinstance(clip_audios_raw, list):
+            clip_audios_raw = []
     except Exception:
-        clip_audios_raw = {}
+        clip_audios_raw = []
 
     saved_clips = []
     clip_trims  = {}
@@ -490,13 +494,13 @@ def compose():
         dest = os.path.join(session_dir, safe_name)
         f.save(dest)
         saved_clips.append(dest)
-        if display_name in clip_trims_raw:
-            t = clip_trims_raw[display_name]
+        if i < len(clip_trims_raw):
+            t = clip_trims_raw[i]
             clip_trims[dest] = {
                 "start": float(t.get("start", 0)),
                 "end":   float(t.get("end", -1)),
             }
-        clip_audios[dest] = bool(clip_audios_raw.get(display_name, False))
+        clip_audios[dest] = bool(clip_audios_raw[i]) if i < len(clip_audios_raw) else False
 
     audio_file = request.files.get("audio")
     if audio_file and audio_file.filename:

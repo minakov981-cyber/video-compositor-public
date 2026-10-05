@@ -1635,15 +1635,11 @@
     uploadedClips.forEach(c => fd.append('clips', c.file));
     fd.append('clip_names', JSON.stringify(uploadedClips.map(c => c.displayName)));
 
-    const clipTrims = {};
-    uploadedClips.forEach(c => {
-      clipTrims[c.displayName] = { start: c.trimStart || 0, end: c.trimEnd !== null ? c.trimEnd : -1 };
-    });
-    fd.append('clip_trims', JSON.stringify(clipTrims));
-
-    const clipAudios = {};
-    uploadedClips.forEach(c => { clipAudios[c.displayName] = c.keepAudio; });
-    fd.append('clip_audios', JSON.stringify(clipAudios));
+    fd.append('clip_trims',  JSON.stringify(uploadedClips.map(c => ({
+      start: c.trimStart || 0,
+      end:   c.trimEnd !== null ? c.trimEnd : -1,
+    }))));
+    fd.append('clip_audios', JSON.stringify(uploadedClips.map(c => c.keepAudio)));
 
     fd.append('audio',          audioFile);
     fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');

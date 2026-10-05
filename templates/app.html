@@ -253,6 +253,8 @@
   }
 
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .compact-fields .field { margin-bottom: 12px; }
 
   .color-row {
     display: flex; align-items: center; gap: 10px;
@@ -725,54 +727,53 @@
     <!-- Text overlay -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">Text Overlay <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></div>
-      <div style="display:flex;gap:16px;align-items:flex-start">
+      <div style="display:flex;gap:14px;align-items:flex-start">
 
-        <div style="flex:1;min-width:0">
+        <div class="compact-fields" style="flex:1;min-width:0">
           <div class="field">
             <label>Text</label>
-            <textarea id="overlay-text" rows="4" placeholder="Leave blank for no overlay&#10;Press Enter for new lines"></textarea>
-          </div>
-
-          <div class="field">
-            <label>Font</label>
-            <select id="font-select">
-              <option value="">Default (Sans)</option>
-            </select>
+            <textarea id="overlay-text" rows="3" placeholder="Leave blank for no overlay&#10;Press Enter for new lines" style="min-height:66px"></textarea>
           </div>
 
           <div class="field-row">
-            <div class="field">
-              <label>Font size (px)</label>
-              <input type="number" id="font-size" value="48" min="12" max="200">
+            <div class="field" style="margin:0">
+              <label>Font</label>
+              <select id="font-select">
+                <option value="">Default (Sans)</option>
+              </select>
             </div>
-            <div class="field">
-              <label>Position</label>
-              <select id="text-position">
-                <option value="top" selected>Top</option>
-                <option value="upper_center">Upper Center</option>
-                <option value="center">Center</option>
-                <option value="lower_center">Lower Center</option>
-                <option value="bottom">Bottom</option>
+            <div class="field" style="margin:0">
+              <label>Style</label>
+              <select id="text-style" onchange="updateTextStyle()">
+                <option value="box" selected>Box</option>
+                <option value="shadow">Shadow</option>
+                <option value="none">Plain</option>
               </select>
             </div>
           </div>
 
-          <div class="field">
-            <label>Offset (px)</label>
-            <input type="number" id="text-offset" value="0" placeholder="0">
-            <div class="hint">Positive = down &nbsp;·&nbsp; Negative = up</div>
+          <div class="field-row-3" style="margin-top:12px">
+            <div class="field" style="margin:0">
+              <label>Size (px)</label>
+              <input type="number" id="font-size" value="48" min="12" max="200">
+            </div>
+            <div class="field" style="margin:0">
+              <label>Position</label>
+              <select id="text-position">
+                <option value="top" selected>Top</option>
+                <option value="upper_center">Upper mid</option>
+                <option value="center">Center</option>
+                <option value="lower_center">Lower mid</option>
+                <option value="bottom">Bottom</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label>Offset (px)</label>
+              <input type="number" id="text-offset" value="0" placeholder="0" title="Positive = down, Negative = up">
+            </div>
           </div>
 
-          <div class="field">
-            <label>Text Style</label>
-            <select id="text-style" onchange="updateTextStyle()">
-              <option value="box" selected>Box — solid background</option>
-              <option value="shadow">Shadow — drop shadow</option>
-              <option value="none">None — plain text</option>
-            </select>
-          </div>
-
-          <div class="field-row" style="margin-bottom:18px">
+          <div class="field-row" style="margin-top:12px;margin-bottom:12px">
             <div class="field" style="margin:0">
               <label>Text Color</label>
               <div class="color-row">
@@ -790,7 +791,7 @@
           </div>
 
           <div id="box-controls">
-            <div class="field">
+            <div class="field" style="margin-bottom:0">
               <label>Box Opacity — <span id="box-opacity-value">60</span>%</label>
               <input type="range" id="box-opacity" min="0" max="100" value="60">
             </div>

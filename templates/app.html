@@ -255,13 +255,6 @@
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   .compact-fields .field { margin-bottom: 12px; }
-  .compact-fields .field input[type="text"],
-  .compact-fields .field input[type="number"],
-  .compact-fields .field select {
-    padding: 4px 10px;
-    font-size: .85rem;
-  }
-  .compact-fields .color-row input[type="text"] { padding: 4px 10px; }
 
   .color-row {
     display: flex; align-items: center; gap: 10px;
@@ -734,7 +727,7 @@
     <!-- Text overlay -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">Text Overlay <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></div>
-      <div style="display:flex;gap:14px;align-items:flex-start">
+      <div style="display:flex;gap:14px;align-items:flex-start;max-width:340px">
 
         <div class="compact-fields" style="flex:1;min-width:0">
           <div class="field">

@@ -262,13 +262,39 @@
   .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   .compact-fields .field { margin-bottom: 12px; }
   .overlay-wrap { position: relative; margin-bottom: 20px; }
+
+  /* ── Custom dropdown (wraps a hidden native <select>) ── */
+  .dd { position: relative; }
+  .dd .dd-native { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+  .dd-btn {
+    width: 100%; text-align: left; background: var(--bg-elevated); border: 1px solid var(--border);
+    color: var(--text); border-radius: 10px; padding: 9px 36px 9px 12px;
+    font-size: .9rem; font-family: var(--body); outline: none; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: border-color .2s;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%239a9aa2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center; background-size: 12px 8px;
+  }
+  .dd-btn:focus-visible, .dd.open .dd-btn { border-color: var(--accent); }
+  .dd-menu {
+    display: none; position: absolute; top: calc(100% + 6px); left: 0; min-width: 100%; z-index: 50;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+    padding: 4px; max-height: 240px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  .dd.open .dd-menu { display: block; }
+  .dd-opt {
+    padding: 7px 10px; border-radius: 7px; font-size: .9rem; color: var(--text);
+    cursor: pointer; white-space: nowrap;
+  }
+  .dd-opt.active { background: rgba(255,255,255,.06); }
+  .dd-opt.selected { color: var(--accent); }
   .overlay-toggle {
     display: flex; align-items: center; justify-content: space-between; width: 100%;
     background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-dim);
+    margin-bottom: 18px;
   }
-  .overlay-toggle .card-title { cursor: pointer; }
+  .overlay-toggle .card-title { cursor: pointer; margin-bottom: 0; }
   .overlay-chevron { transition: transform .2s; transform: rotate(180deg); }
-  .overlay-wrap.collapsed .overlay-toggle .card-title { margin-bottom: 0; }
+  .overlay-wrap.collapsed .overlay-toggle { margin-bottom: 0; }
   .overlay-wrap.collapsed .overlay-chevron { transform: none; }
   .overlay-wrap.collapsed .overlay-body,
   .overlay-wrap.collapsed .preview-island { display: none !important; }
@@ -1070,8 +1096,90 @@
         opt.textContent = f.replace(/\.(ttf|otf)$/i, '').replace(/-/g, ' ');
         sel.appendChild(opt);
       });
+      if (sel._ddRebuild) sel._ddRebuild();
     } catch (e) { /* ignore — fonts dir may be empty */ }
   }
+
+  // ── Custom dropdown: opens below the field instead of the macOS overlay ──
+  function enhanceSelect(sel) {
+    const wrap = document.createElement('div');
+    wrap.className = 'dd';
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    sel.classList.add('dd-native');
+    sel.tabIndex = -1;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dd-btn';
+    btn.setAttribute('aria-haspopup', 'listbox');
+    const menu = document.createElement('div');
+    menu.className = 'dd-menu';
+    menu.setAttribute('role', 'listbox');
+    wrap.append(btn, menu);
+
+    let active = -1;
+    const opts = () => [...menu.children];
+    const setActive = i => {
+      const list = opts();
+      if (!list.length) return;
+      active = (i + list.length) % list.length;
+      list.forEach((el, j) => el.classList.toggle('active', j === active));
+      list[active].scrollIntoView({ block: 'nearest' });
+    };
+    const build = () => {
+      menu.innerHTML = '';
+      [...sel.options].forEach((o, i) => {
+        const el = document.createElement('div');
+        el.className = 'dd-opt' + (i === sel.selectedIndex ? ' selected' : '');
+        el.setAttribute('role', 'option');
+        el.textContent = o.textContent;
+        el.addEventListener('mousedown', e => { e.preventDefault(); pick(i); });
+        el.addEventListener('mousemove', () => setActive(i));
+        menu.appendChild(el);
+      });
+      btn.textContent = sel.options[sel.selectedIndex]?.textContent || '';
+    };
+    const open = () => {
+      document.querySelectorAll('.dd.open').forEach(d => d !== wrap && d.classList.remove('open'));
+      wrap.classList.add('open');
+      btn.setAttribute('aria-expanded', 'true');
+      setActive(sel.selectedIndex);
+    };
+    const close = () => {
+      wrap.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    };
+    const pick = i => {
+      if (i !== sel.selectedIndex) {
+        sel.selectedIndex = i;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      build();
+      close();
+      btn.focus();
+    };
+
+    btn.addEventListener('click', () => wrap.classList.contains('open') ? close() : open());
+    btn.addEventListener('blur', close);
+    btn.addEventListener('keydown', e => {
+      const isOpen = wrap.classList.contains('open');
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!isOpen) open(); else setActive(active + (e.key === 'ArrowDown' ? 1 : -1));
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        if (isOpen && active >= 0) pick(active); else open();
+      } else if (e.key === 'Escape' && isOpen) {
+        e.preventDefault();
+        close();
+      }
+    });
+    sel.addEventListener('change', build);
+    sel._ddRebuild = build;
+    build();
+  }
+  ['font-select', 'text-style', 'text-position'].forEach(id => enhanceSelect(document.getElementById(id)));
   loadFonts();
 
   // hook text preview updates

@@ -820,7 +820,7 @@
     <!-- Text preview island: right of the card on wide screens, below it on narrow -->
     <div class="preview-island">
       <div style="font-size:.68rem;color:var(--text-faint);font-family:var(--mono);text-align:center;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Preview</div>
-      <canvas id="text-preview-canvas" width="135" height="240" style="display:block;border-radius:8px;border:1px solid var(--border)"></canvas>
+      <canvas id="text-preview-canvas" width="135" height="240" style="display:block;width:135px;height:240px;border-radius:8px;border:1px solid var(--border)"></canvas>
     </div>
     </div>
 
@@ -952,7 +952,8 @@
       });
       video.currentTime = 0.1;
       await new Promise(resolve => { video.onseeked = resolve; setTimeout(resolve, 800); });
-      const W = 135, H = 240;
+      const dpr = window.devicePixelRatio || 1;
+      const W = 135 * dpr, H = 240 * dpr;
       const off = document.createElement('canvas');
       off.width = W; off.height = H;
       const ctx = off.getContext('2d');
@@ -974,10 +975,14 @@
     const canvas = document.getElementById('text-preview-canvas');
     if (!canvas) return;
     const W = 135, H = 240;
+    // Back the canvas at device pixel density so text stays sharp on Retina
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== W * dpr) { canvas.width = W * dpr; canvas.height = H * dpr; }
     const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     if (previewBgFrame) {
-      ctx.drawImage(previewBgFrame, 0, 0);
+      ctx.drawImage(previewBgFrame, 0, 0, W, H);
     } else {
       ctx.fillStyle = '#111';
       ctx.fillRect(0, 0, W, H);

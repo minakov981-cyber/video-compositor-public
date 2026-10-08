@@ -39,13 +39,13 @@ OUTPUT_FORMATS = {
     "1:1":  (1080, 1080),
 }
 
-# Safe-zone preset y positions (top of text block, reference canvas 1080×1920)
-POSITION_Y = {
-    "top":          380,
-    "upper_center": 650,
-    "center":       876,
-    "lower_center": 1100,
-    "bottom":       1350,
+# Preset y positions as a fraction of canvas height (vertical centre of the text block)
+POSITION_PCT = {
+    "top":          0.10,
+    "upper_center": 0.30,
+    "center":       0.50,
+    "lower_center": 0.70,
+    "bottom":       0.90,
 }
 
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
@@ -161,7 +161,7 @@ def _build_drawtext_filters(text_options, canvas_w=1080, canvas_h=1920):
     Shadow mode: drawtext with shadow params, no box.
     None mode:   plain drawtext.
 
-    Y positions are scaled from the 1920-height reference to canvas_h.
+    Y positions are a fraction of canvas_h; the text block is centred on that line.
     Box x-centering uses canvas_w.
     """
     if not text_options or not text_options.get("text", "").strip():
@@ -181,11 +181,12 @@ def _build_drawtext_filters(text_options, canvas_w=1080, canvas_h=1920):
     if text_color.startswith("#"):
         text_color = "0x" + text_color[1:]
 
-    # Scale preset y from the 1920-height reference canvas to the actual canvas_h
-    ref_y  = POSITION_Y.get(text_options.get("position", "top"), 380)
-    base_y = int(ref_y * canvas_h / 1920) + int(text_options.get("offset", 0))
-
     line_spacing = int(font_size * 1.3)
+
+    # Centre the text block vertically on the preset line (fraction of canvas_h)
+    pct     = POSITION_PCT.get(text_options.get("position", "top"), 0.10)
+    block_h = (len(lines) - 1) * line_spacing + font_size
+    base_y  = int(pct * canvas_h - block_h / 2) + int(text_options.get("offset", 0))
     style        = text_options.get("style", "box")
 
     # Resolve custom font (returns None → use FFmpeg default)

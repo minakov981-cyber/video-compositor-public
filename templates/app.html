@@ -1054,8 +1054,10 @@
     const scale      = H / 1920;
     const fs         = Math.max(5, Math.round(fontSize * scale));
     const lineH      = Math.round(fs * 1.3);
-    const POSITION_Y = { top: 380, upper_center: 650, center: 876, lower_center: 1100, bottom: 1350 };
-    const baseY      = Math.round(((POSITION_Y[position] || 380) + offset) * scale);
+    // Mirrors POSITION_PCT in compositor.py: text block centred on a fraction of the height
+    const POSITION_PCT = { top: 0.10, upper_center: 0.30, center: 0.50, lower_center: 0.70, bottom: 0.90 };
+    const blockH     = (lines.length - 1) * lineH + fs;
+    const baseY      = Math.round((POSITION_PCT[position] ?? 0.10) * H - blockH / 2 + offset * scale);
 
     ctx.font         = `bold ${fs}px sans-serif`;
     ctx.textAlign    = 'center';

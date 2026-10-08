@@ -262,6 +262,16 @@
   .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   .compact-fields .field { margin-bottom: 12px; }
   .overlay-wrap { position: relative; margin-bottom: 20px; }
+  .overlay-toggle {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-dim);
+  }
+  .overlay-toggle .card-title { cursor: pointer; }
+  .overlay-chevron { transition: transform .2s; transform: rotate(180deg); }
+  .overlay-wrap.collapsed .overlay-toggle .card-title { margin-bottom: 0; }
+  .overlay-wrap.collapsed .overlay-chevron { transform: none; }
+  .overlay-wrap.collapsed .overlay-body,
+  .overlay-wrap.collapsed .preview-island { display: none !important; }
   .preview-island {
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 14px; width: fit-content; margin-top: 12px;
@@ -740,10 +750,13 @@
     </div>
 
     <!-- Text overlay -->
-    <div class="overlay-wrap">
+    <div class="overlay-wrap collapsed" id="overlay-wrap">
     <div class="card">
-      <div class="card-title">Text Overlay <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></div>
-      <div style="display:flex;gap:14px;align-items:flex-start;max-width:510px">
+      <button type="button" class="overlay-toggle" onclick="toggleOverlay()" aria-expanded="false">
+        <span class="card-title">Text Overlay <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></span>
+        <svg class="overlay-chevron" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg>
+      </button>
+      <div class="overlay-body" style="display:flex;gap:14px;align-items:flex-start;max-width:510px">
 
         <div class="compact-fields" style="flex:1;min-width:0">
           <div class="field">
@@ -969,6 +982,12 @@
       previewBgFrame = null;
     }
     updateTextPreview();
+  }
+
+  function toggleOverlay() {
+    const wrap = document.getElementById('overlay-wrap');
+    const collapsed = wrap.classList.toggle('collapsed');
+    wrap.querySelector('.overlay-toggle').setAttribute('aria-expanded', String(!collapsed));
   }
 
   function updateTextPreview() {

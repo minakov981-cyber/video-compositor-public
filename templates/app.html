@@ -261,6 +261,14 @@
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   .compact-fields .field { margin-bottom: 12px; }
+  .overlay-wrap { position: relative; margin-bottom: 20px; }
+  .preview-island {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px; width: fit-content; margin-top: 12px;
+  }
+  @media (min-width: 768px) {
+    .preview-island { position: absolute; top: 0; left: calc(100% + 24px); margin-top: 0; }
+  }
   .compact-fields .color-row input[type="text"] { max-width: 88px; }
 
   .color-row {
@@ -732,7 +740,8 @@
     </div>
 
     <!-- Text overlay -->
-    <div class="card" style="margin-bottom:20px">
+    <div class="overlay-wrap">
+    <div class="card">
       <div class="card-title">Text Overlay <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></div>
       <div style="display:flex;gap:14px;align-items:flex-start;max-width:510px">
 
@@ -805,12 +814,14 @@
           </div>
         </div>
 
-        <div style="flex-shrink:0;position:sticky;top:24px;padding-top:2px">
-          <div style="font-size:.68rem;color:var(--text-faint);font-family:var(--mono);text-align:center;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Preview</div>
-          <canvas id="text-preview-canvas" width="90" height="160" style="display:block;border-radius:8px;border:1px solid var(--border)"></canvas>
-        </div>
-
       </div>
+    </div>
+
+    <!-- Text preview island: right of the card on wide screens, below it on narrow -->
+    <div class="preview-island">
+      <div style="font-size:.68rem;color:var(--text-faint);font-family:var(--mono);text-align:center;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Preview</div>
+      <canvas id="text-preview-canvas" width="135" height="240" style="display:block;border-radius:8px;border:1px solid var(--border)"></canvas>
+    </div>
     </div>
 
     <!-- Create button -->
@@ -941,7 +952,7 @@
       });
       video.currentTime = 0.1;
       await new Promise(resolve => { video.onseeked = resolve; setTimeout(resolve, 800); });
-      const W = 90, H = 160;
+      const W = 135, H = 240;
       const off = document.createElement('canvas');
       off.width = W; off.height = H;
       const ctx = off.getContext('2d');
@@ -962,7 +973,7 @@
   function updateTextPreview() {
     const canvas = document.getElementById('text-preview-canvas');
     if (!canvas) return;
-    const W = 90, H = 160;
+    const W = 135, H = 240;
     const ctx = canvas.getContext('2d');
 
     if (previewBgFrame) {
@@ -971,7 +982,7 @@
       ctx.fillStyle = '#111';
       ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.font = '7px monospace';
+      ctx.font = '10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('add clips', W / 2, H / 2);

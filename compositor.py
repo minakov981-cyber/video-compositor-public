@@ -291,7 +291,9 @@ def _join_with_transitions(processed, transition, duration, has_audio, temp_dir)
 
     parts = []
     for i, dur in enumerate(durs):
-        parts.append(f"[{i}:v]settb=AVTB,fps=30,setpts=PTS-STARTPTS[v{i}]")
+        # fps must come last: on FFmpeg 7.x setpts marks the frame rate unknown (1/0),
+        # which xfade rejects. fps=30 also gives every input the same 1/30 time base.
+        parts.append(f"[{i}:v]setpts=PTS-STARTPTS,fps=30[v{i}]")
         if has_audio:
             parts.append(f"[{i}:a]apad,atrim=0:{dur},asetpts=PTS-STARTPTS[a{i}]")
 

@@ -681,47 +681,43 @@
           Normalize loudness
         </label>
       </div>
-    </div>
 
-    <!-- Transitions -->
-    <div class="overlay-wrap collapsed" id="transitions-wrap">
-    <div class="card">
-      <button type="button" class="overlay-toggle" onclick="toggleSection('transitions-wrap')" aria-expanded="false">
-        <span class="card-title">Transitions <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></span>
-        <svg class="overlay-chevron" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg>
-      </button>
-      <div class="overlay-body compact-fields" style="max-width:510px">
-        <div class="field-row">
-          <div class="field" style="margin:0">
-            <label>Type</label>
-            <select id="transition-type" onchange="updateClipsDuration()">
-              <option value="none">None (hard cut)</option>
-              <option value="random">Random</option>
-              <option value="fade">Fade</option>
-              <option value="fadeblack">Fade through black</option>
-              <option value="dissolve">Dissolve</option>
-              <option value="slideleft">Slide left</option>
-              <option value="slideup">Slide up</option>
-              <option value="smoothleft">Smooth slide</option>
-              <option value="wipeleft">Wipe</option>
-              <option value="zoomin">Zoom in</option>
-              <option value="circleopen">Circle open</option>
-              <option value="pixelize">Pixelize</option>
-            </select>
+      <div class="overlay-wrap adv-wrap collapsed" id="transitions-wrap" style="margin-bottom:0">
+        <button type="button" class="overlay-toggle" onclick="toggleSection('transitions-wrap')" aria-expanded="false">
+          Transitions <svg class="overlay-chevron" width="10" height="7" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg>
+        </button>
+        <div class="overlay-body compact-fields">
+          <div class="field-row">
+            <div class="field" style="margin:0">
+              <label>Type</label>
+              <select id="transition-type" onchange="updateClipsDuration()">
+                <option value="none">None (hard cut)</option>
+                <option value="random">Random</option>
+                <option value="fade">Fade</option>
+                <option value="fadeblack">Fade through black</option>
+                <option value="dissolve">Dissolve</option>
+                <option value="slideleft">Slide left</option>
+                <option value="slideup">Slide up</option>
+                <option value="smoothleft">Smooth slide</option>
+                <option value="wipeleft">Wipe</option>
+                <option value="zoomin">Zoom in</option>
+                <option value="circleopen">Circle open</option>
+                <option value="pixelize">Pixelize</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label>Duration</label>
+              <select id="transition-duration" onchange="updateClipsDuration()">
+                <option value="0.3">0.3 s</option>
+                <option value="0.5" selected>0.5 s</option>
+                <option value="0.8">0.8 s</option>
+                <option value="1">1 s</option>
+              </select>
+            </div>
           </div>
-          <div class="field" style="margin:0">
-            <label>Duration</label>
-            <select id="transition-duration" onchange="updateClipsDuration()">
-              <option value="0.3">0.3 s</option>
-              <option value="0.5" selected>0.5 s</option>
-              <option value="0.8">0.8 s</option>
-              <option value="1">1 s</option>
-            </select>
-          </div>
+          <div class="field" style="margin:0"><div class="hint" style="margin-top:8px">Clips overlap during a transition, so the video gets a bit shorter.</div></div>
         </div>
-        <div class="field" style="margin:0"><div class="hint" style="margin-top:8px">Clips overlap during a transition, so the video gets a bit shorter.</div></div>
       </div>
-    </div>
     </div>
 
     <!-- Audio -->

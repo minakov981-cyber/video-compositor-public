@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from cleanup import cleanup_old_files
-from compositor import compose_video
+from compositor import TRANSITIONS, compose_video
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
                 create_compose_session, get_compose_session,
@@ -530,6 +530,8 @@ def compose():
     except ValueError:
         music_fade_duration = 2.0
 
+    transition, transition_duration = _transition_from(request.form)
+
     intro_clips, middle_clips, final_clips = _classify_clips(saved_clips)
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
 
@@ -550,12 +552,26 @@ def compose():
         fit_mode=request.form.get("fit_mode", "crop"),
         clip_trims=clip_trims,
         ordered_clips=saved_clips,
+        transition=transition,
+        transition_duration=transition_duration,
     )
 
     job_id = uuid.uuid4().hex[:10]
     create_render_job(job_id)
     threading.Thread(target=_render_job, args=(session_id, text_opts, False, job_id), daemon=True).start()
     return jsonify({"success": True, "session_id": session_id, "job_id": job_id})
+
+
+def _transition_from(src):
+    """(transition, duration) from form/JSON; unknown types fall back to 'none'."""
+    transition = str(src.get("transition", "none") or "none")
+    if transition not in TRANSITIONS:
+        transition = "none"
+    try:
+        duration = float(src.get("transition_duration", 0.5) or 0.5)
+    except (TypeError, ValueError):
+        duration = 0.5
+    return transition, min(max(duration, 0.1), 2.0)
 
 
 @app.route("/variation", methods=["POST"])
@@ -568,11 +584,16 @@ def variation():
         return jsonify({"success": False, "error": "Session not found — please re-upload files"}), 404
 
     text_opts = _text_opts_from_json(data)
+    transition, transition_duration = (
+        _transition_from(data) if "transition" in data else (None, None)
+    )
     update_compose_session_options(
         session_id,
         use_original_duration=bool(data["use_original_duration"]) if "use_original_duration" in data else None,
         output_format=data["output_format"] if "output_format" in data else None,
         fit_mode=data["fit_mode"] if "fit_mode" in data else None,
+        transition=transition,
+        transition_duration=transition_duration,
     )
 
     job_id = uuid.uuid4().hex[:10]
@@ -612,6 +633,8 @@ def _run_composition(session_id, text_opts, variation, job_id):
             clip_trims=s.get("clip_trims", {}),
             temp_dir=temp_dir,
             ordered_clips=s.get("ordered_clips") or [],
+            transition=s.get("transition") or "none",
+            transition_duration=s.get("transition_duration") or 0.5,
         )
         shutil.rmtree(temp_dir, ignore_errors=True)
         resp = {

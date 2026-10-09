@@ -59,6 +59,8 @@ def init_db():
         cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS ordered_clips JSONB")
         cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS music_fade_out BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS music_fade_duration DOUBLE PRECISION NOT NULL DEFAULT 2")
+        cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS transition TEXT NOT NULL DEFAULT 'none'")
+        cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS transition_duration DOUBLE PRECISION NOT NULL DEFAULT 0.5")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS render_jobs (
                 job_id     TEXT PRIMARY KEY,
@@ -153,6 +155,8 @@ def create_compose_session(
     fit_mode: str,
     clip_trims: dict,
     ordered_clips: list,
+    transition: str = "none",
+    transition_duration: float = 0.5,
 ):
     with _db() as cur:
         cur.execute(
@@ -162,8 +166,9 @@ def create_compose_session(
                 audio, duration_range, music_start, music_end,
                 clip_audios, use_original_duration, output_format,
                 fit_mode, clip_trims, ordered_clips,
-                music_fade_out, music_fade_duration
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                music_fade_out, music_fade_duration,
+                transition, transition_duration
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 session_id,
@@ -172,6 +177,7 @@ def create_compose_session(
                 Json(clip_audios), use_original_duration, output_format,
                 fit_mode, Json(clip_trims), Json(ordered_clips),
                 music_fade_out, music_fade_duration,
+                transition, transition_duration,
             ),
         )
 
@@ -190,6 +196,8 @@ def update_compose_session_options(
     use_original_duration=None,
     output_format=None,
     fit_mode=None,
+    transition=None,
+    transition_duration=None,
 ):
     updates, params = [], []
     if use_original_duration is not None:
@@ -201,6 +209,12 @@ def update_compose_session_options(
     if fit_mode is not None:
         updates.append("fit_mode = %s")
         params.append(fit_mode)
+    if transition is not None:
+        updates.append("transition = %s")
+        params.append(transition)
+    if transition_duration is not None:
+        updates.append("transition_duration = %s")
+        params.append(transition_duration)
     if not updates:
         return
     params.append(session_id)

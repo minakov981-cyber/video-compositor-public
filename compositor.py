@@ -48,6 +48,13 @@ POSITION_PCT = {
     "bottom":       0.90,
 }
 
+# xfade transition names offered in the UI; "random" picks one per cut
+XFADE_TYPES = [
+    "fade", "fadeblack", "dissolve", "slideleft", "slideup",
+    "wipeleft", "smoothleft", "zoomin", "circleopen", "pixelize",
+]
+TRANSITIONS = {"none", "random", *XFADE_TYPES}
+
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
 
@@ -268,12 +275,59 @@ def _build_blur_filter_complex(w, h, drawtext_filters=None):
 
 
 
+def _join_with_transitions(processed, transition, duration, has_audio, temp_dir):
+    """Merge normalised clip segments with xfade (+ acrossfade) into one file.
+
+    Each transition overlaps neighbouring clips, so the result is shorter than
+    the plain sum by (n-1) * duration.  Returns (path, total_duration).
+    """
+    durs = [get_video_duration(p) or d for p, d in processed]
+    # Keep the overlap well inside the shortest clip so offsets stay positive
+    d = round(max(0.1, min(duration, 0.45 * min(durs))), 3)
+
+    cmd = [FFMPEG, "-y"]
+    for path, _ in processed:
+        cmd += ["-i", path]
+
+    parts = []
+    for i, dur in enumerate(durs):
+        parts.append(f"[{i}:v]settb=AVTB,fps=30,setpts=PTS-STARTPTS[v{i}]")
+        if has_audio:
+            parts.append(f"[{i}:a]apad,atrim=0:{dur},asetpts=PTS-STARTPTS[a{i}]")
+
+    v_prev, a_prev, total = "v0", "a0", durs[0]
+    for i in range(1, len(durs)):
+        kind = random.choice(XFADE_TYPES) if transition == "random" else transition
+        parts.append(
+            f"[{v_prev}][v{i}]xfade=transition={kind}:duration={d}:offset={round(total - d, 3)}[vx{i}]"
+        )
+        v_prev = f"vx{i}"
+        if has_audio:
+            parts.append(f"[{a_prev}][a{i}]acrossfade=d={d}[ax{i}]")
+            a_prev = f"ax{i}"
+        total += durs[i] - d
+
+    out = os.path.join(temp_dir, "joined.mp4")
+    cmd += ["-filter_complex", ";".join(parts), "-map", f"[{v_prev}]"]
+    if has_audio:
+        cmd += ["-map", f"[{a_prev}]", "-c:a", "aac", "-b:a", "192k"]
+    else:
+        cmd += ["-an"]
+    cmd += ["-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30", out]
+
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"FFmpeg transitions failed:\n{r.stderr[-800:]}")
+    return out, total
+
+
 def compose_video(hook_clips, middle_clips, final_clips, audio,
                   duration_range, text_options, output_path, temp_dir,
                   variation=False, music_start=0.0, music_end=None,
                   clip_audios=None, use_original_duration=False,
                   output_format="9:16", fit_mode="crop", clip_trims=None,
-                  ordered_clips=None, music_fade_out=False, music_fade_duration=2.0):
+                  ordered_clips=None, music_fade_out=False, music_fade_duration=2.0,
+                  transition="none", transition_duration=0.5):
     clip_trims  = clip_trims  or {}
     clip_audios = clip_audios or {}
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
@@ -384,6 +438,14 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             )
         processed.append((out, actual_dur))
 
+    clip_order = [os.path.basename(p) for p, _ in zip(ordered, processed)]
+
+    # ── Step 1b: join clips with xfade transitions into a single segment ──
+    if transition in TRANSITIONS and transition != "none" and len(processed) > 1:
+        processed = [_join_with_transitions(
+            processed, transition, transition_duration, any_audio, temp_dir
+        )]
+
     # ── Step 2: build concat list ──
     concat_file = os.path.join(temp_dir, "concat.txt")
     with open(concat_file, "w") as f:
@@ -479,6 +541,6 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
     return {
         "total_duration": total_duration,
-        "clip_order": [os.path.basename(p) for p, _ in zip(ordered, processed)],
+        "clip_order": clip_order,
         "warning": text_warning,
     }

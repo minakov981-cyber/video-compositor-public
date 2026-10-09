@@ -668,6 +668,47 @@
       <div id="clips-duration"></div>
     </div>
 
+    <!-- Transitions -->
+    <div class="overlay-wrap collapsed" id="transitions-wrap">
+    <div class="card">
+      <button type="button" class="overlay-toggle" onclick="toggleSection('transitions-wrap')" aria-expanded="false">
+        <span class="card-title">Transitions <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></span>
+        <svg class="overlay-chevron" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg>
+      </button>
+      <div class="overlay-body compact-fields" style="max-width:510px">
+        <div class="field-row">
+          <div class="field" style="margin:0">
+            <label>Type</label>
+            <select id="transition-type" onchange="updateClipsDuration()">
+              <option value="none">None (hard cut)</option>
+              <option value="random">Random</option>
+              <option value="fade">Fade</option>
+              <option value="fadeblack">Fade through black</option>
+              <option value="dissolve">Dissolve</option>
+              <option value="slideleft">Slide left</option>
+              <option value="slideup">Slide up</option>
+              <option value="smoothleft">Smooth slide</option>
+              <option value="wipeleft">Wipe</option>
+              <option value="zoomin">Zoom in</option>
+              <option value="circleopen">Circle open</option>
+              <option value="pixelize">Pixelize</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0">
+            <label>Duration</label>
+            <select id="transition-duration" onchange="updateClipsDuration()">
+              <option value="0.3">0.3 s</option>
+              <option value="0.5" selected>0.5 s</option>
+              <option value="0.8">0.8 s</option>
+              <option value="1">1 s</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin:0"><div class="hint" style="margin-top:8px">Clips overlap during a transition, so the video gets a bit shorter.</div></div>
+      </div>
+    </div>
+    </div>
+
     <!-- Audio -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-title">Background Music <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></div>
@@ -1010,8 +1051,10 @@
     updateTextPreview();
   }
 
-  function toggleOverlay() {
-    const wrap = document.getElementById('overlay-wrap');
+  function toggleOverlay() { toggleSection('overlay-wrap'); }
+
+  function toggleSection(id) {
+    const wrap = document.getElementById(id);
     const collapsed = wrap.classList.toggle('collapsed');
     wrap.querySelector('.overlay-toggle').setAttribute('aria-expanded', String(!collapsed));
   }
@@ -1181,7 +1224,7 @@
     sel._ddRebuild = build;
     build();
   }
-  ['font-select', 'text-style', 'text-position'].forEach(id => enhanceSelect(document.getElementById(id)));
+  ['font-select', 'text-style', 'text-position', 'transition-type', 'transition-duration'].forEach(id => enhanceSelect(document.getElementById(id)));
   loadFonts();
 
   // hook text preview updates
@@ -1580,6 +1623,13 @@
     initDragListeners();
   }
 
+  // Seconds lost to overlapping transitions (mirrors the server-side clamp loosely)
+  function transitionOverlap(n) {
+    const type = document.getElementById('transition-type')?.value || 'none';
+    if (type === 'none' || n < 2) return 0;
+    return (n - 1) * (parseFloat(document.getElementById('transition-duration').value) || 0.5);
+  }
+
   function updateClipsDuration() {
     const el = document.getElementById('clips-duration');
     const n  = uploadedClips.length;
@@ -1587,19 +1637,20 @@
 
     const mode = getSelectedDurationMode();
     let maxSec = 0;
+    const cut  = transitionOverlap(n);
 
     if (mode === 'auto') {
       const raw   = (document.getElementById('duration-range').value || '2').trim();
       const parts = raw.split('-').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
       if (parts.length >= 2) {
-        const lo = Math.min(parts[0], parts[1]) * n;
-        const hi = Math.max(parts[0], parts[1]) * n;
+        const lo = Math.max(0, Math.min(parts[0], parts[1]) * n - cut);
+        const hi = Math.max(0, Math.max(parts[0], parts[1]) * n - cut);
         maxSec = hi;
         let text = `${fmtSec(lo)} – ${fmtSec(hi)}`;
         if (hi >= 60) text += ` (${fmtMin(lo)} – ${fmtMin(hi)})`;
         el.textContent = `Estimated duration: ${text}`;
       } else if (parts.length === 1) {
-        maxSec = parts[0] * n;
+        maxSec = Math.max(0, parts[0] * n - cut);
         el.textContent = `Estimated duration: ${fmt(maxSec)}`;
       } else {
         el.textContent = '';
@@ -1610,6 +1661,7 @@
       uploadedClips.forEach(c => {
         total += (c.trimEnd ?? c.duration) - (c.trimStart ?? 0);
       });
+      total  = Math.max(0, total - cut);
       maxSec = total;
       el.textContent = `Estimated duration: ${fmt(total)}`;
     }
@@ -1929,6 +1981,8 @@
     fd.append('music_fade_duration', document.getElementById('music-fade-duration').value || '2');
     fd.append('output_format',  getSelectedFormat());
     fd.append('fit_mode',       getSelectedFitMode());
+    fd.append('transition',          document.getElementById('transition-type').value);
+    fd.append('transition_duration', document.getElementById('transition-duration').value);
     fd.append('text',           document.getElementById('overlay-text').value);
     fd.append('font',           document.getElementById('font-select').value);
     fd.append('font_size',      document.getElementById('font-size').value);
@@ -1976,6 +2030,8 @@
       box_opacity: parseInt(document.getElementById('box-opacity').value, 10),
       output_format: getSelectedFormat(),
       fit_mode:      getSelectedFitMode(),
+      transition:          document.getElementById('transition-type').value,
+      transition_duration: parseFloat(document.getElementById('transition-duration').value),
     };
 
     setLoading('variation-btn', true, 'Rendering…');

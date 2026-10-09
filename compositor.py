@@ -329,7 +329,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                   clip_audios=None, use_original_duration=False,
                   output_format="9:16", fit_mode="crop", clip_trims=None,
                   ordered_clips=None, music_fade_out=False, music_fade_duration=2.0,
-                  transition="none", transition_duration=0.5):
+                  transition="none", transition_duration=0.5, normalize_audio=False):
     clip_trims  = clip_trims  or {}
     clip_audios = clip_audios or {}
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
@@ -405,7 +405,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                 cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a:0",
                         "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast",
                         "-pix_fmt", "yuv420p", "-r", "30",
-                        "-c:a", "aac", "-b:a", "192k", out]
+                        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
             else:
                 cmd += ["-filter_complex", fc, "-map", "[vout]",
                         "-t", str(actual_dur), "-an", "-c:v", "libx264", "-preset", "fast",
@@ -428,7 +428,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                 cmd += ["-t", str(actual_dur), "-vf", vf,
                         "-map", "0:v:0", "-map", "0:a:0",
                         "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30",
-                        "-c:a", "aac", "-b:a", "192k", out]
+                        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
             else:
                 cmd += ["-t", str(actual_dur), "-vf", vf, "-an",
                         "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30", out]
@@ -468,74 +468,37 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
     fade_start = max(0.0, total_duration - music_fade_duration)
 
+    # Source of the final audio: music+clip mix, music only, or clip audio only
     if audio and any_audio:
-        # Mix clip audio with background music
-        fc = "[0:a:0][1:a:0]amix=inputs=2:duration=first:dropout_transition=0[mixed]"
-        if music_fade_out:
-            fc += f";[mixed]afade=t=out:st={fade_start}:d={music_fade_duration}[aout]"
-            amap = "[aout]"
-        else:
-            amap = "[mixed]"
-        cmd = [
-            FFMPEG, "-y",
-            "-f", "concat", "-safe", "0", "-i", concat_file,
-            *audio_input,
-            "-t", str(total_duration),
-            "-filter_complex", fc,
-            "-map", "0:v:0", "-map", amap,
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k",
-            output_path,
-        ]
+        src, chain = "[0:a:0][1:a:0]", ["amix=inputs=2:duration=first:dropout_transition=0"]
     elif audio:
-        # Background music only (no clip audio)
-        if music_fade_out:
-            fc = f"[1:a:0]afade=t=out:st={fade_start}:d={music_fade_duration}[aout]"
-            cmd = [
-                FFMPEG, "-y",
-                "-f", "concat", "-safe", "0", "-i", concat_file,
-                *audio_input,
-                "-t", str(total_duration),
-                "-filter_complex", fc,
-                "-map", "0:v:0", "-map", "[aout]",
-                "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "192k",
-                output_path,
-            ]
-        else:
-            cmd = [
-                FFMPEG, "-y",
-                "-f", "concat", "-safe", "0", "-i", concat_file,
-                *audio_input,
-                "-t", str(total_duration),
-                "-map", "0:v:0", "-map", "1:a:0",
-                "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "192k",
-                "-shortest",
-                output_path,
-            ]
+        src, chain = "[1:a:0]", []
     elif any_audio:
-        # Clip audio only, no background music
-        cmd = [
-            FFMPEG, "-y",
-            "-f", "concat", "-safe", "0", "-i", concat_file,
-            "-t", str(total_duration),
-            "-map", "0:v:0", "-map", "0:a:0",
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k",
-            output_path,
-        ]
+        src, chain = "[0:a:0]", []
     else:
-        # No audio at all
-        cmd = [
-            FFMPEG, "-y",
-            "-f", "concat", "-safe", "0", "-i", concat_file,
-            "-t", str(total_duration),
-            "-map", "0:v:0",
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-            "-an",
-            output_path,
-        ]
+        src, chain = None, []
+
+    # Loudness first, fade last — otherwise loudnorm would lift the fade-out back up
+    if src and normalize_audio:
+        chain += ["loudnorm=I=-14:TP=-1.5:LRA=11", "aresample=48000"]
+    if audio and music_fade_out:
+        chain.append(f"afade=t=out:st={fade_start}:d={music_fade_duration}")
+
+    cmd = [FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", concat_file, *audio_input,
+           "-t", str(total_duration)]
+    if chain:
+        cmd += ["-filter_complex", f"{src}{','.join(chain)}[aout]",
+                "-map", "0:v:0", "-map", "[aout]"]
+    elif src:
+        cmd += ["-map", "0:v:0", "-map", src.strip("[]")]
+        if audio:
+            cmd += ["-shortest"]
+    else:
+        cmd += ["-map", "0:v:0", "-an"]
+    cmd += ["-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p"]
+    if src:
+        cmd += ["-c:a", "aac", "-b:a", "192k"]
+    cmd += [output_path]
 
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:

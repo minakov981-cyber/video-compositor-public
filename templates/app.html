@@ -666,6 +666,14 @@
 
       <div id="clips-list"></div>
       <div id="clips-duration"></div>
+
+      <div style="margin-top:14px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:.8rem;color:var(--text-dim);font-family:var(--mono)">
+          <input type="checkbox" id="normalize-audio" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
+          Normalize loudness
+        </label>
+        <div style="margin:4px 0 0 22px;font-size:.75rem;color:var(--text-faint);font-family:var(--mono)">Evens out clip sound and music to −14 LUFS, the level TikTok, Reels and YouTube use</div>
+      </div>
     </div>
 
     <!-- Transitions -->
@@ -1979,6 +1987,7 @@
     fd.append('music_end',           document.getElementById('music-end').value.trim());
     fd.append('music_fade_out',      document.getElementById('music-fade-out').checked);
     fd.append('music_fade_duration', document.getElementById('music-fade-duration').value || '2');
+    fd.append('normalize_audio',     document.getElementById('normalize-audio').checked);
     fd.append('output_format',  getSelectedFormat());
     fd.append('fit_mode',       getSelectedFitMode());
     fd.append('transition',          document.getElementById('transition-type').value);

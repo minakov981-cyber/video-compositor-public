@@ -531,6 +531,7 @@ def compose():
         music_fade_duration = 2.0
 
     transition, transition_duration = _transition_from(request.form)
+    normalize_audio = request.form.get("normalize_audio", "false").lower() == "true"
 
     intro_clips, middle_clips, final_clips = _classify_clips(saved_clips)
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
@@ -554,6 +555,7 @@ def compose():
         ordered_clips=saved_clips,
         transition=transition,
         transition_duration=transition_duration,
+        normalize_audio=normalize_audio,
     )
 
     job_id = uuid.uuid4().hex[:10]
@@ -635,6 +637,7 @@ def _run_composition(session_id, text_opts, variation, job_id):
             ordered_clips=s.get("ordered_clips") or [],
             transition=s.get("transition") or "none",
             transition_duration=s.get("transition_duration") or 0.5,
+            normalize_audio=bool(s.get("normalize_audio", False)),
         )
         shutil.rmtree(temp_dir, ignore_errors=True)
         resp = {

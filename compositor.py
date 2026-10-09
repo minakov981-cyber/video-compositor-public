@@ -55,6 +55,59 @@ XFADE_TYPES = [
 ]
 TRANSITIONS = {"none", "random", *XFADE_TYPES}
 
+# Export presets: CRF per codec for each quality level (lower = better/larger)
+EXPORT_CRF = {
+    "h264": {"small": 28, "balanced": 23, "high": 18},
+    "h265": {"small": 30, "balanced": 27, "high": 22},
+    "vp9":  {"small": 40, "balanced": 33, "high": 26},
+}
+EXPORT_CONTAINERS = {"mp4", "mov", "webm"}
+DEFAULT_EXPORT = {"quality": "balanced", "codec": "h264", "container": "mp4"}
+
+
+def normalize_export_opts(opts):
+    """Validate export options; WebM always pairs with VP9 and vice versa."""
+    opts = {**DEFAULT_EXPORT, **{k: v for k, v in (opts or {}).items() if v}}
+    if opts["quality"] not in ("small", "balanced", "high"):
+        opts["quality"] = "balanced"
+    if opts["codec"] not in EXPORT_CRF:
+        opts["codec"] = "h264"
+    if opts["container"] not in EXPORT_CONTAINERS:
+        opts["container"] = "mp4"
+    if opts["container"] == "webm":
+        opts["codec"] = "vp9"
+    elif opts["codec"] == "vp9":
+        opts["container"] = "webm"
+    return {k: opts[k] for k in DEFAULT_EXPORT}
+
+
+def _export_codec_args(opts):
+    """(video_args, audio_args) for the final encode."""
+    crf = EXPORT_CRF[opts["codec"]][opts["quality"]]
+    if opts["codec"] == "vp9":
+        video = ["-c:v", "libvpx-vp9", "-crf", str(crf), "-b:v", "0",
+                 "-deadline", "good", "-cpu-used", "4", "-row-mt", "1"]
+        audio = ["-c:a", "libopus", "-b:a", "160k"]
+    else:
+        lib = "libx265" if opts["codec"] == "h265" else "libx264"
+        video = ["-c:v", lib, "-preset", "fast", "-crf", str(crf)]
+        if opts["codec"] == "h265":
+            video += ["-tag:v", "hvc1"]  # lets Apple devices/QuickTime play HEVC
+        video += ["-movflags", "+faststart"]
+        audio = ["-c:a", "aac", "-b:a", "192k"]
+    return video + ["-pix_fmt", "yuv420p"], audio
+
+
+def extract_audio_mp3(src, dst):
+    """Write the audio track of src as MP3. Raises if src has no audio."""
+    r = subprocess.run(
+        [FFMPEG, "-y", "-i", src, "-vn", "-c:a", "libmp3lame", "-q:a", "2", dst],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"Audio extraction failed:\n{r.stderr[-400:]}")
+
+
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
 
@@ -275,7 +328,7 @@ def _build_blur_filter_complex(w, h, drawtext_filters=None):
 
 
 
-def _join_with_transitions(processed, transition, duration, has_audio, temp_dir):
+def _join_with_transitions(processed, transition, duration, has_audio, temp_dir, seg_crf=()):
     """Merge normalised clip segments with xfade (+ acrossfade) into one file.
 
     Each transition overlaps neighbouring clips, so the result is shorter than
@@ -315,7 +368,7 @@ def _join_with_transitions(processed, transition, duration, has_audio, temp_dir)
         cmd += ["-map", f"[{a_prev}]", "-c:a", "aac", "-b:a", "192k"]
     else:
         cmd += ["-an"]
-    cmd += ["-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30", out]
+    cmd += ["-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30", out]
 
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -329,7 +382,11 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                   clip_audios=None, use_original_duration=False,
                   output_format="9:16", fit_mode="crop", clip_trims=None,
                   ordered_clips=None, music_fade_out=False, music_fade_duration=2.0,
-                  transition="none", transition_duration=0.5, normalize_audio=False):
+                  transition="none", transition_duration=0.5, normalize_audio=False,
+                  export_opts=None):
+    export_opts = normalize_export_opts(export_opts)
+    # Intermediate segments must not be the quality bottleneck for "high" exports
+    seg_crf = ["-crf", "18"] if export_opts["quality"] == "high" else []
     clip_trims  = clip_trims  or {}
     clip_audios = clip_audios or {}
     w, h = OUTPUT_FORMATS.get(output_format, (1080, 1920))
@@ -398,17 +455,17 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             if any_audio and not keep_audio:
                 cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
                 cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0",
-                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast",
+                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast", *seg_crf,
                         "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "128k", "-shortest", out]
             elif keep_audio:
                 cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a:0",
-                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast",
+                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast", *seg_crf,
                         "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
             else:
                 cmd += ["-filter_complex", fc, "-map", "[vout]",
-                        "-t", str(actual_dur), "-an", "-c:v", "libx264", "-preset", "fast",
+                        "-t", str(actual_dur), "-an", "-c:v", "libx264", "-preset", "fast", *seg_crf,
                         "-pix_fmt", "yuv420p", "-r", "30", out]
         else:  # crop (default)
             vf = _build_crop_vf(w, h)
@@ -422,16 +479,16 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                 cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
                         "-t", str(actual_dur), "-vf", vf,
                         "-map", "0:v:0", "-map", "1:a:0",
-                        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30",
+                        "-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "128k", "-shortest", out]
             elif keep_audio:
                 cmd += ["-t", str(actual_dur), "-vf", vf,
                         "-map", "0:v:0", "-map", "0:a:0",
-                        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30",
+                        "-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
             else:
                 cmd += ["-t", str(actual_dur), "-vf", vf, "-an",
-                        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-r", "30", out]
+                        "-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30", out]
 
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
@@ -445,7 +502,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
     # ── Step 1b: join clips with xfade transitions into a single segment ──
     if transition in TRANSITIONS and transition != "none" and len(processed) > 1:
         processed = [_join_with_transitions(
-            processed, transition, transition_duration, any_audio, temp_dir
+            processed, transition, transition_duration, any_audio, temp_dir, seg_crf
         )]
 
     # ── Step 2: build concat list ──
@@ -495,9 +552,10 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             cmd += ["-shortest"]
     else:
         cmd += ["-map", "0:v:0", "-an"]
-    cmd += ["-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p"]
+    video_args, audio_args = _export_codec_args(export_opts)
+    cmd += video_args
     if src:
-        cmd += ["-c:a", "aac", "-b:a", "192k"]
+        cmd += audio_args
     cmd += [output_path]
 
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -507,5 +565,6 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
     return {
         "total_duration": total_duration,
         "clip_order": clip_order,
+        "has_audio": bool(src),
         "warning": text_warning,
     }

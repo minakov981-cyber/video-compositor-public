@@ -296,6 +296,14 @@
   .overlay-chevron { transition: transform .2s; transform: rotate(180deg); }
   .overlay-wrap.collapsed .overlay-toggle { margin-bottom: 0; }
   .overlay-wrap.collapsed .overlay-chevron { transform: none; }
+  .adv-wrap { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .adv-wrap .overlay-toggle {
+    justify-content: flex-start; gap: 8px; width: auto; margin-bottom: 12px;
+    font-family: var(--mono); font-size: .8rem;
+  }
+  .adv-wrap .overlay-toggle:hover { color: var(--text); }
+  .dl-row { display: flex; gap: 10px; margin-top: 12px; }
+  .dl-row .btn { padding: 10px 14px; font-size: .85rem; text-decoration: none; }
   .overlay-wrap.collapsed .overlay-body,
   .overlay-wrap.collapsed .preview-island { display: none !important; }
   .preview-island {
@@ -772,7 +780,7 @@
 
     <!-- Output format & fit mode -->
     <div class="card" style="margin-bottom:20px">
-      <div class="card-title">Output Format</div>
+      <div class="card-title">Export</div>
       <div class="field-row" style="align-items:start">
 
         <div class="field" style="margin-bottom:0">
@@ -820,6 +828,41 @@
           </div>
         </div>
 
+      </div>
+
+      <div class="overlay-wrap adv-wrap collapsed" id="export-adv-wrap" style="margin-bottom:0">
+        <button type="button" class="overlay-toggle" onclick="toggleSection('export-adv-wrap')" aria-expanded="false">
+          Advanced <svg class="overlay-chevron" width="10" height="7" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg>
+        </button>
+        <div class="overlay-body compact-fields">
+          <div class="field-row-3">
+            <div class="field" style="margin:0">
+              <label>Quality</label>
+              <select id="export-quality">
+                <option value="small">Small file</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label>Codec</label>
+              <select id="export-codec" onchange="syncExportOptions('codec')">
+                <option value="h264" selected>H.264</option>
+                <option value="h265">H.265 (HEVC)</option>
+                <option value="vp9">VP9</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label>Container</label>
+              <select id="export-container" onchange="syncExportOptions('container')">
+                <option value="mp4" selected>MP4</option>
+                <option value="mov">MOV</option>
+                <option value="webm">WebM</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" style="margin:0"><div class="hint" id="export-hint" style="margin-top:8px"></div></div>
+        </div>
       </div>
     </div>
 
@@ -943,6 +986,11 @@
 
         <div class="video-meta" id="video-meta"></div>
 
+        <div class="dl-row">
+          <a class="btn btn-secondary" id="dl-video" download>Download video</a>
+          <a class="btn btn-secondary" id="dl-audio" download>Download audio (MP3)</a>
+        </div>
+
         <hr class="divider">
 
         <!-- New variation -->
@@ -1056,6 +1104,38 @@
       previewBgFrame = null;
     }
     updateTextPreview();
+  }
+
+  // ── Export options: WebM only carries VP9, and VP9 only goes in WebM ──
+  const EXPORT_HINTS = {
+    h264: 'H.264 plays everywhere.',
+    h265: 'H.265: about half the size, but older devices and some browsers can’t play it.',
+    vp9:  'VP9 / WebM: small and web-friendly, but slower to render and not for iPhone editing apps.',
+  };
+  function setSelect(id, value) {
+    const sel = document.getElementById(id);
+    if (sel.value === value) return;
+    sel.value = value;
+    sel._ddRebuild && sel._ddRebuild();
+  }
+  function syncExportOptions(changed) {
+    const codec = document.getElementById('export-codec');
+    const cont  = document.getElementById('export-container');
+    if (changed === 'container') {
+      if (cont.value === 'webm') setSelect('export-codec', 'vp9');
+      else if (codec.value === 'vp9') setSelect('export-codec', 'h264');
+    } else if (changed === 'codec') {
+      if (codec.value === 'vp9') setSelect('export-container', 'webm');
+      else if (cont.value === 'webm') setSelect('export-container', 'mp4');
+    }
+    document.getElementById('export-hint').textContent = EXPORT_HINTS[codec.value] || '';
+  }
+  function getExportOptions() {
+    return {
+      quality:   document.getElementById('export-quality').value,
+      codec:     document.getElementById('export-codec').value,
+      container: document.getElementById('export-container').value,
+    };
   }
 
   function toggleOverlay() { toggleSection('overlay-wrap'); }
@@ -1231,7 +1311,9 @@
     sel._ddRebuild = build;
     build();
   }
-  ['font-select', 'text-style', 'text-position', 'transition-type', 'transition-duration'].forEach(id => enhanceSelect(document.getElementById(id)));
+  ['font-select', 'text-style', 'text-position', 'transition-type', 'transition-duration',
+   'export-quality', 'export-codec', 'export-container'].forEach(id => enhanceSelect(document.getElementById(id)));
+  syncExportOptions();
   loadFonts();
 
   // hook text preview updates
@@ -1987,6 +2069,7 @@
     fd.append('music_fade_out',      document.getElementById('music-fade-out').checked);
     fd.append('music_fade_duration', document.getElementById('music-fade-duration').value || '2');
     fd.append('normalize_audio',     document.getElementById('normalize-audio').checked);
+    Object.entries(getExportOptions()).forEach(([k, v]) => fd.append(k, v));
     fd.append('output_format',  getSelectedFormat());
     fd.append('fit_mode',       getSelectedFitMode());
     fd.append('transition',          document.getElementById('transition-type').value);
@@ -2040,6 +2123,7 @@
       fit_mode:      getSelectedFitMode(),
       transition:          document.getElementById('transition-type').value,
       transition_duration: parseFloat(document.getElementById('transition-duration').value),
+      ...getExportOptions(),
     };
 
     setLoading('variation-btn', true, 'Rendering…');
@@ -2060,7 +2144,7 @@
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function showOutput(filename, totalDuration, clipOrder, warning) {
+  function showOutput(filename, totalDuration, clipOrder, warning, hasAudio) {
     const vid  = document.getElementById('output-video');
     const meta = document.getElementById('video-meta');
 
@@ -2069,6 +2153,13 @@
     // Cache-bust so the same element picks up a new file
     vid.src = `/output/${filename}?t=${Date.now()}`;
     vid.load();
+
+    const dlVideo = document.getElementById('dl-video');
+    const dlAudio = document.getElementById('dl-audio');
+    dlVideo.href = `/output/${filename}`;
+    dlVideo.setAttribute('download', filename);
+    dlAudio.href = `/output-audio/${filename}`;
+    dlAudio.style.display = hasAudio === false ? 'none' : '';
 
     const orderHtml = (clipOrder || []).map(name => {
       const n = name.toLowerCase();
@@ -2105,7 +2196,7 @@
       }
       if (data.status === 'done') {
         const r = data.result;
-        showOutput(r.output, r.total_duration, r.clip_order, r.warning);
+        showOutput(r.output, r.total_duration, r.clip_order, r.warning, r.has_audio);
         return;
       }
       if (data.status === 'error') {

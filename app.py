@@ -13,10 +13,10 @@ import stripe
 from flask import (Flask, jsonify, redirect, render_template, request,
                    send_from_directory, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
-from werkzeug.utils import secure_filename
+from werkzeug.utils import safe_join, secure_filename
 
 from cleanup import cleanup_old_files
-from compositor import TRANSITIONS, compose_video
+from compositor import TRANSITIONS, compose_video, extract_audio_mp3, normalize_export_opts
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
                 create_compose_session, get_compose_session,
@@ -532,6 +532,7 @@ def compose():
 
     transition, transition_duration = _transition_from(request.form)
     normalize_audio = request.form.get("normalize_audio", "false").lower() == "true"
+    export_opts     = _export_from(request.form)
 
     intro_clips, middle_clips, final_clips = _classify_clips(saved_clips)
     use_original_duration = request.form.get("use_original_duration", "false").lower() == "true"
@@ -556,12 +557,21 @@ def compose():
         transition=transition,
         transition_duration=transition_duration,
         normalize_audio=normalize_audio,
+        export_opts=export_opts,
     )
 
     job_id = uuid.uuid4().hex[:10]
     create_render_job(job_id)
     threading.Thread(target=_render_job, args=(session_id, text_opts, False, job_id), daemon=True).start()
     return jsonify({"success": True, "session_id": session_id, "job_id": job_id})
+
+
+def _export_from(src):
+    return normalize_export_opts({
+        "quality":   src.get("quality"),
+        "codec":     src.get("codec"),
+        "container": src.get("container"),
+    })
 
 
 def _transition_from(src):
@@ -596,6 +606,7 @@ def variation():
         fit_mode=data["fit_mode"] if "fit_mode" in data else None,
         transition=transition,
         transition_duration=transition_duration,
+        export_opts=_export_from(data) if "container" in data else None,
     )
 
     job_id = uuid.uuid4().hex[:10]
@@ -611,7 +622,8 @@ def _run_composition(session_id, text_opts, variation, job_id):
     temp_dir = os.path.join(TEMP_DIR, f"{session_id}_v{vnum}")
     os.makedirs(temp_dir, exist_ok=True)
 
-    output_filename = f"{session_id}_v{vnum}.mp4"
+    export_opts     = normalize_export_opts(s.get("export_opts"))
+    output_filename = f"{session_id}_v{vnum}.{export_opts['container']}"
     output_path     = os.path.join(OUTPUT_DIR, output_filename)
 
     try:
@@ -638,6 +650,7 @@ def _run_composition(session_id, text_opts, variation, job_id):
             transition=s.get("transition") or "none",
             transition_duration=s.get("transition_duration") or 0.5,
             normalize_audio=bool(s.get("normalize_audio", False)),
+            export_opts=export_opts,
         )
         shutil.rmtree(temp_dir, ignore_errors=True)
         resp = {
@@ -646,6 +659,7 @@ def _run_composition(session_id, text_opts, variation, job_id):
             "output":         output_filename,
             "total_duration": round(result["total_duration"], 2),
             "clip_order":     result["clip_order"],
+            "has_audio":      result["has_audio"],
         }
         if result.get("warning"):
             resp["warning"] = result["warning"]
@@ -677,6 +691,23 @@ def job_status(job_id):
 @login_required
 def serve_output(filename):
     return send_from_directory(OUTPUT_DIR, filename)
+
+
+@app.route("/output-audio/<path:filename>")
+@login_required
+def serve_output_audio(filename):
+    """MP3 of a rendered video's soundtrack, extracted on first request."""
+    src = safe_join(OUTPUT_DIR, filename)
+    if not src or not os.path.isfile(src):
+        return jsonify({"success": False, "error": "File not found"}), 404
+    mp3_name = os.path.splitext(os.path.basename(src))[0] + ".mp3"
+    mp3_path = os.path.join(OUTPUT_DIR, mp3_name)
+    if not os.path.isfile(mp3_path):
+        try:
+            extract_audio_mp3(src, mp3_path)
+        except RuntimeError:
+            return jsonify({"success": False, "error": "This video has no audio"}), 400
+    return send_from_directory(OUTPUT_DIR, mp3_name, as_attachment=True)
 
 
 if __name__ == "__main__":

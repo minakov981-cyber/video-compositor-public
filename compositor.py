@@ -55,11 +55,13 @@ XFADE_TYPES = [
 ]
 TRANSITIONS = {"none", "random", *XFADE_TYPES}
 
-# Export presets: CRF per codec for each quality level (lower = better/larger)
+# Export presets: CRF per codec for each quality level (lower = better/larger).
+# "xsmall" reuses the Small CRF but renders at 2/3 resolution (1080p -> 720p),
+# which roughly halves the file and looks cleaner than pushing CRF higher.
 EXPORT_CRF = {
-    "h264": {"small": 28, "balanced": 23, "high": 18},
-    "h265": {"small": 30, "balanced": 27, "high": 22},
-    "vp9":  {"small": 40, "balanced": 33, "high": 26},
+    "h264": {"xsmall": 28, "small": 28, "balanced": 23, "high": 18},
+    "h265": {"xsmall": 30, "small": 30, "balanced": 27, "high": 22},
+    "vp9":  {"xsmall": 40, "small": 40, "balanced": 33, "high": 26},
 }
 EXPORT_CONTAINERS = {"mp4", "mov", "webm"}
 DEFAULT_EXPORT = {"quality": "balanced", "codec": "h264", "container": "mp4"}
@@ -68,7 +70,7 @@ DEFAULT_EXPORT = {"quality": "balanced", "codec": "h264", "container": "mp4"}
 def normalize_export_opts(opts):
     """Validate export options; WebM always pairs with VP9 and vice versa."""
     opts = {**DEFAULT_EXPORT, **{k: v for k, v in (opts or {}).items() if v}}
-    if opts["quality"] not in ("small", "balanced", "high"):
+    if opts["quality"] not in ("xsmall", "small", "balanced", "high"):
         opts["quality"] = "balanced"
     if opts["codec"] not in EXPORT_CRF:
         opts["codec"] = "h264"
@@ -81,9 +83,12 @@ def normalize_export_opts(opts):
     return {k: opts[k] for k in DEFAULT_EXPORT}
 
 
-def _export_codec_args(opts):
-    """(video_args, audio_args) for the final encode."""
+def _export_codec_args(opts, w, h):
+    """(video_args, audio_args) for the final encode of a w×h canvas."""
     crf = EXPORT_CRF[opts["codec"]][opts["quality"]]
+    scale = []
+    if opts["quality"] == "xsmall":
+        scale = ["-vf", f"scale={w * 2 // 3 // 2 * 2}:{h * 2 // 3 // 2 * 2}"]
     if opts["codec"] == "vp9":
         video = ["-c:v", "libvpx-vp9", "-crf", str(crf), "-b:v", "0",
                  "-deadline", "good", "-cpu-used", "4", "-row-mt", "1"]
@@ -95,7 +100,7 @@ def _export_codec_args(opts):
             video += ["-tag:v", "hvc1"]  # lets Apple devices/QuickTime play HEVC
         video += ["-movflags", "+faststart"]
         audio = ["-c:a", "aac", "-b:a", "192k"]
-    return video + ["-pix_fmt", "yuv420p"], audio
+    return scale + video + ["-pix_fmt", "yuv420p"], audio
 
 
 def extract_audio_mp3(src, dst):
@@ -552,7 +557,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             cmd += ["-shortest"]
     else:
         cmd += ["-map", "0:v:0", "-an"]
-    video_args, audio_args = _export_codec_args(export_opts)
+    video_args, audio_args = _export_codec_args(export_opts, w, h)
     cmd += video_args
     if src:
         cmd += audio_args

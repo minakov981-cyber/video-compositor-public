@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import safe_join, secure_filename
 
 from cleanup import cleanup_old_files
-from compositor import TRANSITIONS, compose_video, extract_audio_mp3, normalize_export_opts
+from compositor import TRANSITIONS, clip_speed, compose_video, extract_audio_mp3, normalize_export_opts
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
                 create_compose_session, get_compose_session,
@@ -499,6 +499,7 @@ def compose():
             clip_trims[dest] = {
                 "start": float(t.get("start", 0)),
                 "end":   float(t.get("end", -1)),
+                "speed": clip_speed(t.get("speed", 1)),
             }
         clip_audios[dest] = bool(clip_audios_raw[i]) if i < len(clip_audios_raw) else False
 

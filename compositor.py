@@ -55,6 +55,17 @@ XFADE_TYPES = [
 ]
 TRANSITIONS = {"none", "random", *XFADE_TYPES}
 
+CLIP_SPEEDS = (0.5, 1.0, 1.5, 2.0)
+
+
+def clip_speed(value):
+    """Per-clip playback speed, snapped to one of CLIP_SPEEDS (default 1×)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(CLIP_SPEEDS, key=lambda s: abs(s - v))
+
 # Export presets: CRF per codec for each quality level (lower = better/larger).
 # "xsmall" reuses the Small CRF but renders at 2/3 resolution (1080p -> 720p),
 # which roughly halves the file and looks cleaner than pushing CRF higher.
@@ -311,16 +322,17 @@ def _build_crop_vf(w, h):
     return f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
 
 
-def _build_blur_filter_complex(w, h, drawtext_filters=None):
+def _build_blur_filter_complex(w, h, drawtext_filters=None, pre=None):
     """filter_complex string for fit-with-blur mode.
 
     Splits the input into two streams:
     - background: scaled/cropped to w×h then heavily blurred
     - foreground: scaled to fit within w×h (letterboxed), overlaid centred on bg
-    Optional drawtext filters are chained after the overlay.
+    Optional drawtext filters are chained after the overlay; `pre` (e.g. a
+    speed change) runs on the input before the split.
     """
     fc = (
-        f"[0:v]split=2[bg_in][fg_in];"
+        f"[0:v]{pre + ',' if pre else ''}split=2[bg_in][fg_in];"
         f"[bg_in]scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},boxblur=20:3[bg_blur];"
         f"[fg_in]scale={w}:{h}:force_original_aspect_ratio=decrease[fg_fit];"
@@ -426,6 +438,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         trim_start = max(0.0, float(trim.get("start", 0.0)))
         trim_end_v = float(trim.get("end", -1))
         trim_end   = trim_end_v if trim_end_v > trim_start else None
+        speed      = clip_speed(trim.get("speed", 1))
 
         # Effective duration within the trimmed window
         if trim_end is not None:
@@ -434,6 +447,8 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             eff_clip_dur = clip_dur - trim_start
         else:
             eff_clip_dur = max_dur
+        if trim_end is not None or clip_dur > 0:
+            eff_clip_dur /= speed  # source seconds -> output seconds
 
         # "final" clips: always 3 s regardless of duration settings
         if is_final:
@@ -451,8 +466,11 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
         out = os.path.join(temp_dir, f"clip_{i:03d}.mp4")
 
+        speed_vf = f"setpts=PTS/{speed}" if speed != 1 else None
+        speed_af = ["-af", f"atempo={speed}"] if speed != 1 else []
+
         if fit_mode == "blur":
-            fc  = _build_blur_filter_complex(w, h, active_dt)
+            fc  = _build_blur_filter_complex(w, h, active_dt, pre=speed_vf)
             cmd = [FFMPEG, "-y"]
             if trim_start > 0:
                 cmd += ["-ss", str(trim_start)]
@@ -464,7 +482,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                         "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "128k", "-shortest", out]
             elif keep_audio:
-                cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a:0",
+                cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a:0", *speed_af,
                         "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast", *seg_crf,
                         "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
@@ -474,6 +492,8 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                         "-pix_fmt", "yuv420p", "-r", "30", out]
         else:  # crop (default)
             vf = _build_crop_vf(w, h)
+            if speed_vf:
+                vf = f"{speed_vf},{vf}"
             if active_dt:
                 vf += "," + ",".join(active_dt)
             cmd = [FFMPEG, "-y"]
@@ -488,7 +508,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
                         "-c:a", "aac", "-b:a", "128k", "-shortest", out]
             elif keep_audio:
                 cmd += ["-t", str(actual_dur), "-vf", vf,
-                        "-map", "0:v:0", "-map", "0:a:0",
+                        "-map", "0:v:0", "-map", "0:a:0", *speed_af,
                         "-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
             else:

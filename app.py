@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import safe_join, secure_filename
 
 from cleanup import cleanup_old_files
+from tools import TOOL_OPTIONS, output_name, run_tool
 from compositor import TRANSITIONS, clip_speed, compose_video, extract_audio_mp3, normalize_export_opts
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
@@ -104,7 +105,7 @@ _t.start()
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
 def _is_api_path():
-    return request.path.startswith(("/compose", "/variation", "/fonts", "/output", "/status"))
+    return request.path.startswith(("/compose", "/variation", "/fonts", "/output", "/status", "/tools"))
 
 
 def _has_access(user) -> bool:
@@ -673,6 +674,55 @@ def _run_composition(session_id, text_opts, variation, job_id):
 def _render_job(session_id, text_opts, variation, job_id):
     with _render_semaphore:
         _run_composition(session_id, text_opts, variation, job_id)
+
+
+@app.route("/tools/<tool>", methods=["POST"])
+@login_required
+def tools_run(tool):
+    """Run one Tools-tab utility on an uploaded file in the background."""
+    option = request.form.get("option", "")
+    if option not in TOOL_OPTIONS.get(tool, ()):
+        return jsonify({"success": False, "error": "Unknown tool or option"}), 400
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"success": False, "error": "Choose a file first"}), 400
+
+    job_id   = uuid.uuid4().hex[:10]
+    original = secure_filename(f.filename) or "video.mp4"
+    work_dir = os.path.join(UPLOAD_DIR, f"tool_{job_id}")
+    os.makedirs(work_dir, exist_ok=True)
+    src = os.path.join(work_dir, original)
+    f.save(src)
+
+    download_name = output_name(tool, option, original)
+    output_file   = f"{job_id}_{download_name}"
+
+    create_render_job(job_id)
+    threading.Thread(
+        target=_tool_job,
+        args=(job_id, tool, option, src, work_dir, output_file, download_name),
+        daemon=True,
+    ).start()
+    return jsonify({"success": True, "job_id": job_id})
+
+
+def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name):
+    with _render_semaphore:
+        try:
+            size_in = os.path.getsize(src)
+            extra = run_tool(tool, option, src, os.path.join(OUTPUT_DIR, output_file))
+            set_render_job_done(job_id, {
+                "success":       True,
+                "output":        output_file,
+                "download_name": download_name,
+                "size_in":       size_in,
+                "size_out":      os.path.getsize(os.path.join(OUTPUT_DIR, output_file)),
+                **extra,
+            })
+        except Exception as exc:
+            set_render_job_error(job_id, str(exc))
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 @app.route("/status/<job_id>")

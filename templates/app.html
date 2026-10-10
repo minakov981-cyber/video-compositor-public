@@ -619,6 +619,54 @@
   }
   .trim-preview canvas { width: 100%; height: 100%; display: block; }
 
+  /* ── View tabs (Create | Tools) ── */
+  .view-tabs {
+    display: flex; justify-content: center; gap: 4px; width: fit-content;
+    margin: -24px auto 28px; padding: 4px; position: relative; z-index: 1;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  }
+  .view-tab {
+    background: none; border: 0; border-radius: 9px; padding: 8px 22px; cursor: pointer;
+    color: var(--text-dim); font-family: var(--body); font-size: .9rem; font-weight: 600;
+    transition: background .15s, color .15s;
+  }
+  .view-tab:hover { color: var(--text); }
+  .view-tab.active { background: var(--bg-elevated); color: var(--accent); }
+
+  /* ── Tools view ── */
+  .tools-grid {
+    display: grid; grid-template-columns: 1fr; gap: 24px;
+    max-width: 960px; margin: 0 auto; position: relative; z-index: 1;
+  }
+  @media (min-width: 768px) { .tools-grid { grid-template-columns: 1fr 1fr; } }
+  .tool-card { display: flex; flex-direction: column; }
+  .tool-desc { font-size: .83rem; color: var(--text-dim); margin: -8px 0 14px; }
+  .tool-file {
+    display: flex; align-items: center; gap: 10px;
+    border: 1.5px dashed var(--border); border-radius: 10px; padding: 10px 12px;
+    background: var(--bg-elevated); cursor: pointer; transition: border-color .2s, background .2s;
+  }
+  .tool-file:hover, .tool-file.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+  .tool-file-btn {
+    flex-shrink: 0; font-size: .8rem; font-weight: 600; color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; background: var(--bg-card);
+  }
+  .tool-file-name {
+    font-size: .78rem; font-family: var(--mono); color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tool-file.has-file .tool-file-name { color: var(--text); }
+  .tool-opts { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 6px; align-items: center; }
+  .tool-opts .speed-label { font-size: .74rem; font-family: var(--mono); color: var(--text-dim); margin-right: 4px; }
+  .tool-hint { font-size: .74rem; font-family: var(--mono); color: var(--text-faint); min-height: 1em; margin-bottom: 14px; }
+  .tool-card .btn-primary { margin-top: auto; }
+  .tool-result {
+    margin-top: 12px; display: flex; align-items: center; gap: 10px; justify-content: space-between;
+    font-size: .8rem; font-family: var(--mono); color: var(--text-dim);
+  }
+  .tool-result strong { color: var(--accent); font-weight: 600; }
+  .tool-result .btn { width: auto; padding: 8px 14px; font-size: .82rem; text-decoration: none; flex-shrink: 0; }
+
   /* hidden utility */
   .hidden { display: none !important; }
 </style>
@@ -635,7 +683,14 @@
   <p>Assemble, shuffle &amp; export vertical video reels</p>
 </header>
 
-<div class="layout">
+<nav class="view-tabs" role="tablist">
+  <button type="button" class="view-tab active" role="tab" aria-selected="true" data-view="create" onclick="switchView('create')">Create</button>
+  <button type="button" class="view-tab" role="tab" aria-selected="false" data-view="tools" onclick="switchView('tools')">Tools</button>
+</nav>
+
+<div id="tools-view" class="tools-grid hidden"></div>
+
+<div class="layout" id="create-view">
 
   <!-- ══ LEFT: setup panel ══ -->
   <div>
@@ -2211,7 +2266,8 @@
     document.getElementById('output-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  async function pollStatus(jobId, errorId) {
+  // Resolves with the job result, rejects with the job's error message
+  async function pollJob(jobId) {
     const MAX_ATTEMPTS = 120; // 120 × 2.5s = 5 minutes
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
       await new Promise(r => setTimeout(r, 2500));
@@ -2223,17 +2279,148 @@
         // transient network error — keep trying
         continue;
       }
-      if (data.status === 'done') {
-        const r = data.result;
-        showOutput(r.output, r.total_duration, r.clip_order, r.warning, r.has_audio);
-        return;
-      }
-      if (data.status === 'error') {
-        showError(errorId, data.error || 'Render failed.');
-        return;
-      }
+      if (data.status === 'done')  return data.result;
+      if (data.status === 'error') throw new Error(data.error || 'Render failed.');
     }
-    showError(errorId, 'Render timed out after 5 minutes. Please try again.');
+    throw new Error('Render timed out after 5 minutes. Please try again.');
+  }
+
+  async function pollStatus(jobId, errorId) {
+    try {
+      const r = await pollJob(jobId);
+      showOutput(r.output, r.total_duration, r.clip_order, r.warning, r.has_audio);
+    } catch (e) {
+      showError(errorId, e.message);
+    }
+  }
+
+  // ── Create | Tools view switch ────────────────────────────────────────────
+  function switchView(view) {
+    document.getElementById('create-view').classList.toggle('hidden', view !== 'create');
+    document.getElementById('tools-view').classList.toggle('hidden', view !== 'tools');
+    document.querySelectorAll('.view-tab').forEach(t => {
+      const on = t.dataset.view === view;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', String(on));
+    });
+    try { localStorage.setItem('clipsnap-view', view); } catch (_) {}
+  }
+
+  // ── Tools tab ─────────────────────────────────────────────────────────────
+  const TOOLS = [
+    { id: 'compress', title: 'Compress', desc: 'Make a video file smaller.', button: 'Compress',
+      accept: 'video/*', label: 'Level', def: 'medium',
+      options: [['light', 'Light'], ['medium', 'Medium'], ['strong', 'Strong']],
+      hints: { light: 'Barely visible quality loss.', medium: 'Good balance for sharing.', strong: 'Smallest file, also reduces resolution.' } },
+    { id: 'extract_audio', title: 'Extract Audio', desc: 'Save the soundtrack of a video.', button: 'Extract',
+      accept: 'video/*,audio/*', label: 'Format', def: 'mp3',
+      options: [['mp3', 'MP3'], ['m4a', 'M4A'], ['wav', 'WAV']],
+      hints: { mp3: 'Plays everywhere.', m4a: 'AAC, good for Apple apps.', wav: 'Uncompressed, large file.' } },
+    { id: 'convert', title: 'Convert', desc: 'Change the file format.', button: 'Convert',
+      accept: 'video/*', label: 'To', def: 'mp4',
+      options: [['mp4', 'MP4'], ['mov', 'MOV'], ['webm', 'WebM'], ['gif', 'GIF']],
+      hints: { mp4: 'H.264, plays everywhere. Also turns iPhone HEVC into H.264.', mov: 'H.264 in a QuickTime container.',
+               webm: 'VP9, good for websites.', gif: 'Silent, max 480px, first 30 s only.' } },
+    { id: 'speed', title: 'Speed', desc: 'Speed up or slow down a video.', button: 'Apply speed',
+      accept: 'video/*', label: 'Speed', def: '2',
+      options: [['0.5', '0.5×'], ['0.75', '0.75×'], ['1.25', '1.25×'], ['1.5', '1.5×'], ['2', '2×']],
+      hints: {} },
+  ];
+  const toolState = {};
+
+  function fmtBytes(n) {
+    return n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`;
+  }
+
+  function renderTools() {
+    document.getElementById('tools-view').innerHTML = TOOLS.map(t => `
+      <div class="card tool-card" id="tool-${t.id}">
+        <div class="card-title">${t.title}</div>
+        <p class="tool-desc">${t.desc}</p>
+        <label class="tool-file" id="tool-file-${t.id}">
+          <span class="tool-file-btn">Choose file</span>
+          <span class="tool-file-name">or drop it here</span>
+          <input type="file" accept="${t.accept}" class="hidden" onchange="setToolFile('${t.id}', this.files[0])">
+        </label>
+        <div class="tool-opts">
+          <span class="speed-label">${t.label}</span>
+          ${t.options.map(([v, l]) => `<button type="button" class="speed-chip" data-value="${v}" onclick="setToolOption('${t.id}', '${v}')">${l}</button>`).join('')}
+        </div>
+        <div class="tool-hint" id="tool-hint-${t.id}"></div>
+        <button class="btn btn-primary" id="tool-btn-${t.id}" onclick="runTool('${t.id}')">${t.button}</button>
+        <div id="tool-result-${t.id}"></div>
+        <div id="tool-error-${t.id}"></div>
+      </div>`).join('');
+
+    TOOLS.forEach(t => {
+      toolState[t.id] = { file: null, option: t.def };
+      setToolOption(t.id, t.def);
+      const zone = document.getElementById(`tool-file-${t.id}`);
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        if (e.dataTransfer.files[0]) setToolFile(t.id, e.dataTransfer.files[0]);
+      });
+    });
+  }
+
+  function setToolFile(id, file) {
+    if (!file) return;
+    toolState[id].file = file;
+    const zone = document.getElementById(`tool-file-${id}`);
+    zone.classList.add('has-file');
+    zone.querySelector('.tool-file-name').textContent = `${file.name} · ${fmtBytes(file.size)}`;
+    zone.querySelector('.tool-file-btn').textContent = 'Change';
+    document.getElementById(`tool-result-${id}`).innerHTML = '';
+    clearError(`tool-error-${id}`);
+  }
+
+  function setToolOption(id, value) {
+    const tool = TOOLS.find(t => t.id === id);
+    toolState[id].option = value;
+    document.querySelectorAll(`#tool-${id} .speed-chip`).forEach(b => b.classList.toggle('active', b.dataset.value === value));
+    document.getElementById(`tool-hint-${id}`).textContent = tool.hints[value] || '';
+  }
+
+  async function runTool(id) {
+    const tool  = TOOLS.find(t => t.id === id);
+    const state = toolState[id];
+    const errId = `tool-error-${id}`;
+    clearError(errId);
+    document.getElementById(`tool-result-${id}`).innerHTML = '';
+    if (!state.file) return showError(errId, 'Choose a file first.');
+
+    const fd = new FormData();
+    fd.append('file', state.file);
+    fd.append('option', state.option);
+
+    setLoading(`tool-btn-${id}`, true, 'Uploading…');
+    try {
+      const res  = await fetch(`/tools/${id}`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.success) return showError(errId, data.error);
+      setLoading(`tool-btn-${id}`, true, 'Processing…');
+      const r = await pollJob(data.job_id);
+      showToolResult(id, r);
+    } catch (e) {
+      showError(errId, e.message);
+    } finally {
+      setLoading(`tool-btn-${id}`, false, tool.button);
+    }
+  }
+
+  function showToolResult(id, r) {
+    const pct  = Math.round((1 - r.size_out / r.size_in) * 100);
+    let sizes  = `${fmtBytes(r.size_in)} → <strong>${fmtBytes(r.size_out)}</strong>`;
+    if (id === 'compress') sizes += r.no_gain ? ' · already compact' : ` (−${pct}%)`;
+    if (id === 'extract_audio') sizes = `Audio · <strong>${fmtBytes(r.size_out)}</strong>`;
+    document.getElementById(`tool-result-${id}`).innerHTML = `
+      <div class="tool-result">
+        <span>${sizes}</span>
+        <a class="btn btn-secondary" href="/output/${encodeURIComponent(r.output)}" download="${r.download_name}">Download</a>
+      </div>`;
   }
 
   function setLoading(btnId, loading, label) {
@@ -2304,6 +2491,10 @@
       });
     });
   }
+
+  // Tools config (const TOOLS) is declared above, so build the tab only here
+  renderTools();
+  try { if (localStorage.getItem('clipsnap-view') === 'tools') switchView('tools'); } catch (_) {}
 </script>
 </body>
 </html>

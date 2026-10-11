@@ -37,6 +37,14 @@ def init_db():
         """)
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_expires TIMESTAMPTZ")
+        # Free tier + subscription. Existing users get the Tools trial from the day this column appears.
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS generations_used INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tools_trial_expires TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days')")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_end TIMESTAMPTZ")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS compose_sessions (
                 session_id            TEXT PRIMARY KEY,
@@ -63,6 +71,8 @@ def init_db():
         cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS transition_duration DOUBLE PRECISION NOT NULL DEFAULT 0.5")
         cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS normalize_audio BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS export_opts JSONB")
+        cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS owner_email TEXT")
+        cur.execute("ALTER TABLE compose_sessions ADD COLUMN IF NOT EXISTS variations_used INTEGER NOT NULL DEFAULT 0")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS render_jobs (
                 job_id     TEXT PRIMARY KEY,
@@ -72,6 +82,7 @@ def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS owner_email TEXT")
 
 
 def get_user(email: str):
@@ -130,6 +141,51 @@ def grant_trial(email: str, days: int):
         )
 
 
+def create_user(email: str):
+    """Register a free account; no-op if the email already exists."""
+    with _db() as cur:
+        cur.execute("INSERT INTO users (email) VALUES (%s) ON CONFLICT (email) DO NOTHING", (email,))
+
+
+def use_generation(email: str, limit=None) -> bool:
+    """Count one Create Video render; False if the free limit is already reached."""
+    with _db() as cur:
+        cur.execute(
+            "UPDATE users SET generations_used = generations_used + 1 "
+            "WHERE email = %s AND (%s::int IS NULL OR generations_used < %s::int) RETURNING generations_used",
+            (email, limit, limit),
+        )
+        return cur.fetchone() is not None
+
+
+def refund_generation(email: str):
+    with _db() as cur:
+        cur.execute(
+            "UPDATE users SET generations_used = GREATEST(generations_used - 1, 0) WHERE email = %s",
+            (email,),
+        )
+
+
+def set_stripe_customer(email: str, customer_id: str):
+    with _db() as cur:
+        cur.execute("UPDATE users SET stripe_customer_id = %s WHERE email = %s", (customer_id, email))
+
+
+def get_user_by_customer(customer_id: str):
+    with _db() as cur:
+        cur.execute("SELECT * FROM users WHERE stripe_customer_id = %s", (customer_id,))
+        return cur.fetchone()
+
+
+def update_subscription(email: str, subscription_id: str, status: str, period_end, cancel_at_period_end: bool):
+    with _db() as cur:
+        cur.execute(
+            "UPDATE users SET stripe_subscription_id = %s, subscription_status = %s, "
+            "subscription_period_end = %s, cancel_at_period_end = %s WHERE email = %s",
+            (subscription_id, status, period_end, cancel_at_period_end, email),
+        )
+
+
 def set_password(email: str, password_hash: str):
     with _db() as cur:
         cur.execute(
@@ -161,6 +217,7 @@ def create_compose_session(
     transition_duration: float = 0.5,
     normalize_audio: bool = False,
     export_opts: dict = None,
+    owner_email: str = None,
 ):
     with _db() as cur:
         cur.execute(
@@ -171,8 +228,9 @@ def create_compose_session(
                 clip_audios, use_original_duration, output_format,
                 fit_mode, clip_trims, ordered_clips,
                 music_fade_out, music_fade_duration,
-                transition, transition_duration, normalize_audio, export_opts
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                transition, transition_duration, normalize_audio, export_opts,
+                owner_email
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 session_id,
@@ -182,6 +240,7 @@ def create_compose_session(
                 fit_mode, Json(clip_trims), Json(ordered_clips),
                 music_fade_out, music_fade_duration,
                 transition, transition_duration, normalize_audio, Json(export_opts),
+                owner_email,
             ),
         )
 
@@ -244,6 +303,25 @@ def increment_variation_count(session_id: str) -> int:
         return row["variation_count"]
 
 
+def use_session_variation(session_id: str, limit=None) -> bool:
+    """Count one New Variation render; False if the session's free variations are used up."""
+    with _db() as cur:
+        cur.execute(
+            "UPDATE compose_sessions SET variations_used = variations_used + 1 "
+            "WHERE session_id = %s AND (%s::int IS NULL OR variations_used < %s::int) RETURNING variations_used",
+            (session_id, limit, limit),
+        )
+        return cur.fetchone() is not None
+
+
+def refund_session_variation(session_id: str):
+    with _db() as cur:
+        cur.execute(
+            "UPDATE compose_sessions SET variations_used = GREATEST(variations_used - 1, 0) WHERE session_id = %s",
+            (session_id,),
+        )
+
+
 def list_all_session_ids_with_clip_paths() -> list:
     with _db() as cur:
         cur.execute(
@@ -260,11 +338,11 @@ def delete_compose_session(session_id: str):
 
 # ── Render jobs ───────────────────────────────────────────────────────────────
 
-def create_render_job(job_id: str):
+def create_render_job(job_id: str, owner_email: str = None):
     with _db() as cur:
         cur.execute(
-            "INSERT INTO render_jobs (job_id) VALUES (%s)",
-            (job_id,),
+            "INSERT INTO render_jobs (job_id, owner_email) VALUES (%s, %s)",
+            (job_id, owner_email),
         )
 
 
@@ -289,3 +367,15 @@ def set_render_job_error(job_id: str, error_str: str):
             "UPDATE render_jobs SET status = 'error', error = %s WHERE job_id = %s",
             (error_str, job_id),
         )
+
+
+def get_owner(object_id: str):
+    """(found, owner_email) for a compose session or render job id. Legacy rows have no owner."""
+    with _db() as cur:
+        cur.execute(
+            "SELECT owner_email FROM compose_sessions WHERE session_id = %s "
+            "UNION ALL SELECT owner_email FROM render_jobs WHERE job_id = %s LIMIT 1",
+            (object_id, object_id),
+        )
+        row = cur.fetchone()
+        return (row is not None, row["owner_email"] if row else None)

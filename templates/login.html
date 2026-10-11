@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sign In — ClipSnap</title>
+<title>{% if signup %}Sign Up{% else %}Sign In{% endif %} — ClipSnap</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -166,7 +166,7 @@
 
 <div class="card">
 
-  <div class="logo">Video <span>Compositor</span></div>
+  <div class="logo">Clip <span>Snap</span></div>
   <div class="tagline">Vertical reels, assembled instantly</div>
 
   {% if sent %}
@@ -174,15 +174,38 @@
     <div class="sent-icon">📬</div>
     <h2>Check your inbox</h2>
     <p class="sub">
-      We sent a login link to <strong>{{ email }}</strong>.
+      {% if signup_sent %}We sent a confirmation link to <strong>{{ email }}</strong>.
+      {% else %}If an account exists for <strong>{{ email }}</strong>, a login link is on its way.{% endif %}
       Click it to sign in — it expires in 24 hours.
     </p>
     <p class="sub">Don't see it? Check your spam folder.</p>
 
+  {% elif signup %}
+
+    <h2>Create your free account</h2>
+    <p class="sub">{{ free_generations or 5 }} free videos and 7 days of Tools. No card needed.
+      We'll email you a link to confirm your address and set a password.</p>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/signup">
+      <div class="field">
+        <label for="email">Email address</label>
+        <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+      </div>
+      <button type="submit" class="btn">Sign up free</button>
+    </form>
+
+    <div class="footer-link">
+      Already have an account? <a href="/login">Sign in</a>
+    </div>
+
   {% elif forgot %}
 
-    <h2>Reset password</h2>
-    <p class="sub">Enter your email and we'll send you a magic link to sign in and set a new password.</p>
+    <h2>Email me a login link</h2>
+    <p class="sub">Enter your email and we'll send you a magic link to sign in. You can set a new password after.</p>
 
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
@@ -221,11 +244,11 @@
     </form>
 
     <div class="footer-link">
-      <a href="/forgot">Forgot password?</a>
+      <a href="/forgot">Forgot password? Email me a login link</a>
     </div>
 
     <div class="footer-link" style="margin-top: 12px;">
-      Don't have access yet? <a href="/">Buy for $15</a>
+      No account yet? <a href="/signup">Sign up free</a>
     </div>
 
   {% endif %}

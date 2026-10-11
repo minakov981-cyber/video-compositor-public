@@ -667,6 +667,27 @@
   .tool-result strong { color: var(--accent); font-weight: 600; }
   .tool-result .btn { width: auto; padding: 8px 14px; font-size: .82rem; text-decoration: none; flex-shrink: 0; }
 
+  /* ── Plan bar (free usage / upgrade / account) ── */
+  .plan-bar {
+    position: relative; z-index: 2; max-width: 960px; margin: -12px auto 12px;
+    display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .plan-chip {
+    font-size: .76rem; font-family: var(--mono); color: var(--text-dim); text-decoration: none;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+    transition: color .15s, border-color .15s;
+  }
+  a.plan-chip:hover { color: var(--text); border-color: var(--text-faint); }
+  .plan-chip.upgrade { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
+  a.plan-chip.upgrade:hover { color: #111; filter: brightness(1.1); }
+  .plan-banner {
+    max-width: 960px; margin: 0 auto 20px; position: relative; z-index: 1;
+    font-size: .85rem; color: var(--text-dim); text-align: center;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px;
+  }
+  .plan-banner a, .alert a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .plan-banner a:hover, .alert a:hover { text-decoration: underline; }
+
   /* hidden utility */
   .hidden { display: none !important; }
 </style>
@@ -674,6 +695,8 @@
 <body>
 
 <div class="bg-grid"></div>
+
+<div class="plan-bar" id="plan-bar"></div>
 
 <header>
   <div class="logo-mark">
@@ -688,6 +711,7 @@
   <button type="button" class="view-tab" role="tab" aria-selected="false" data-view="tools" onclick="switchView('tools')">Tools</button>
 </nav>
 
+<div id="tools-banner" class="plan-banner hidden"></div>
 <div id="tools-view" class="tools-grid hidden"></div>
 
 <div class="layout" id="create-view">
@@ -2173,10 +2197,11 @@
     try {
       const res  = await fetch('/compose', { method: 'POST', body: fd });
       const data = await res.json();
-      if (!data.success) { showError('create-error', data.error); return; }
+      if (!data.success) { showError('create-error', data.error, data.upgrade); return; }
       sessionId = data.session_id;
       setLoading('create-btn', true, 'Processing…');
       await pollStatus(data.job_id, 'create-error');
+      loadPlan();
     } catch (e) {
       showError('create-error', e.message);
     } finally {
@@ -2218,7 +2243,7 @@
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!data.success) { showError('variation-error', data.error); return; }
+      if (!data.success) { showError('variation-error', data.error, data.upgrade); return; }
       await pollStatus(data.job_id, 'variation-error');
     } catch (e) {
       showError('variation-error', e.message);
@@ -2304,6 +2329,7 @@
       t.setAttribute('aria-selected', String(on));
     });
     try { localStorage.setItem('clipsnap-view', view); } catch (_) {}
+    syncToolsBanner();
   }
 
   // ── Tools tab ─────────────────────────────────────────────────────────────
@@ -2400,7 +2426,7 @@
     try {
       const res  = await fetch(`/tools/${id}`, { method: 'POST', body: fd });
       const data = await res.json();
-      if (!data.success) return showError(errId, data.error);
+      if (!data.success) return showError(errId, data.error, data.upgrade);
       setLoading(`tool-btn-${id}`, true, 'Processing…');
       const r = await pollJob(data.job_id);
       showToolResult(id, r);
@@ -2431,9 +2457,49 @@
       : label;
   }
 
-  function showError(containerId, msg) {
+  function showError(containerId, msg, upgrade) {
     const el = document.getElementById(containerId);
-    el.innerHTML = `<div class="alert alert-error">${msg}</div>`;
+    const link = upgrade ? ' <a href="/account">Upgrade to Pro →</a>' : '';
+    el.innerHTML = `<div class="alert alert-error">${msg}${link}</div>`;
+  }
+
+  // ── Plan: free usage, upgrade, account ────────────────────────────────────
+  const PLAN_NAMES = { pro: 'Pro', lifetime: 'Lifetime', trial: 'Pro trial' };
+
+  async function loadPlan() {
+    try {
+      const res = await fetch('/me');
+      if (res.ok) renderPlan(await res.json());
+    } catch (_) {}
+  }
+
+  function renderPlan(p) {
+    const fmtDate = iso => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    let chips;
+    if (p.pro) {
+      chips = `<span class="plan-chip">${PLAN_NAMES[p.plan] || 'Pro'}</span>`;
+    } else {
+      const left = Math.max(p.generations_limit - p.generations_used, 0);
+      chips = `<span class="plan-chip" title="Free videos left">${left}/${p.generations_limit} free videos</span>
+               <a class="plan-chip upgrade" href="/account">Upgrade</a>`;
+    }
+    document.getElementById('plan-bar').innerHTML = chips + '<a class="plan-chip" href="/account">Account</a>';
+
+    const banner = document.getElementById('tools-banner');
+    if (p.pro) {
+      banner.innerHTML = '';
+    } else if (p.tools) {
+      banner.innerHTML = `Tools are free until <strong>${fmtDate(p.tools_until)}</strong>. <a href="/account">Upgrade to keep them →</a>`;
+    } else {
+      banner.innerHTML = 'Your 7-day Tools trial has ended. <a href="/account">Upgrade to Pro to keep using Tools →</a>';
+    }
+    syncToolsBanner();
+  }
+
+  function syncToolsBanner() {
+    const banner = document.getElementById('tools-banner');
+    const toolsOpen = !document.getElementById('tools-view').classList.contains('hidden');
+    banner.classList.toggle('hidden', !toolsOpen || !banner.innerHTML);
   }
 
   function clearError(containerId) {
@@ -2495,6 +2561,7 @@
   // Tools config (const TOOLS) is declared above, so build the tab only here
   renderTools();
   try { if (localStorage.getItem('clipsnap-view') === 'tools') switchView('tools'); } catch (_) {}
+  loadPlan();
 </script>
 </body>
 </html>

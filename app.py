@@ -14,14 +14,18 @@ from flask import (Flask, jsonify, redirect, render_template, request,
                    send_from_directory, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import safe_join, secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from cleanup import cleanup_old_files
 from tools import TOOL_OPTIONS, output_name, run_tool
 from compositor import TRANSITIONS, clip_speed, compose_video, extract_audio_mp3, normalize_export_opts
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
+                create_user, use_generation, refund_generation,
+                set_stripe_customer, get_user_by_customer, update_subscription,
                 create_compose_session, get_compose_session,
                 update_compose_session_options, increment_variation_count,
+                use_session_variation, refund_session_variation, get_owner,
                 list_all_session_ids_with_clip_paths, delete_compose_session,
                 create_render_job, get_render_job,
                 set_render_job_done, set_render_job_error)
@@ -36,12 +40,19 @@ for d in (UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, FONTS_DIR):
     os.makedirs(d, exist_ok=True)
 
 app = Flask(__name__)
+# Railway terminates HTTPS at its proxy; trust X-Forwarded-* so external URLs (Stripe, magic links) are https
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2 GB
 app.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-key-change-in-prod")
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM    = os.environ.get("RESEND_FROM_EMAIL", "noreply@clipsnap.app")
+
+# Free tier: 5 Create Video renders, each with up to 3 New Variations; Tools for 7 days from signup
+FREE_GENERATIONS     = 5
+FREE_VARIATIONS      = 3
+ACTIVE_SUB_STATUSES  = {"active", "trialing", "past_due"}  # past_due: Stripe is still retrying the card
 
 # NOTE: цей семафор per-process. З N gunicorn workers реальний максимум одночасних
 # FFmpeg-рендерів = MAX_CONCURRENT_RENDERS × N. Якщо RENDERS_TOTAL має бути обмежений
@@ -105,36 +116,109 @@ _t.start()
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
 def _is_api_path():
-    return request.path.startswith(("/compose", "/variation", "/fonts", "/output", "/status", "/tools"))
+    return request.path.startswith(("/compose", "/variation", "/fonts", "/output", "/status", "/tools", "/me"))
 
 
-def _has_access(user) -> bool:
+def _aware(dt):
+    if dt is not None and dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _in_future(dt) -> bool:
+    return dt is not None and datetime.now(timezone.utc) < _aware(dt)
+
+
+def _plan(user) -> str:
+    """lifetime (old $15 purchase), pro (subscription), trial (admin invite) or free."""
     if user["paid"]:
-        return True
-    trial = user.get("trial_expires")
-    if not trial:
-        return False
-    if trial.tzinfo is None:
-        trial = trial.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) < trial
+        return "lifetime"
+    if user.get("subscription_status") in ACTIVE_SUB_STATUSES:
+        return "pro"
+    if _in_future(user.get("trial_expires")):
+        return "trial"
+    return "free"
+
+
+def _is_pro(user) -> bool:
+    return _plan(user) != "free"
+
+
+def _tools_until(user):
+    until = user.get("tools_trial_expires")
+    if until is None and user.get("created_at"):
+        until = _aware(user["created_at"]) + timedelta(days=7)
+    return _aware(until)
+
+
+def _has_tools(user) -> bool:
+    return _is_pro(user) or _in_future(_tools_until(user))
+
+
+def _plan_info(user) -> dict:
+    tools_until = _tools_until(user)
+    period_end  = _aware(user.get("subscription_period_end"))
+    return {
+        "email":             user["email"],
+        "plan":              _plan(user),
+        "pro":               _is_pro(user),
+        "generations_used":  min(user.get("generations_used") or 0, FREE_GENERATIONS),
+        "generations_limit": FREE_GENERATIONS,
+        "variations_limit":  FREE_VARIATIONS,
+        "tools":             _has_tools(user),
+        "tools_until":       tools_until.isoformat() if tools_until else None,
+        "subscription_status": user.get("subscription_status"),
+        "period_end":        period_end.isoformat() if period_end else None,
+        "cancel_at_period_end": bool(user.get("cancel_at_period_end")),
+        "has_billing":       bool(user.get("stripe_customer_id")),
+    }
+
+
+def _upgrade_error(message):
+    return jsonify({"success": False, "error": message, "upgrade": True}), 402
+
+
+def _owns(object_id) -> bool:
+    """Whether the logged-in user may see this session/job/output. Legacy rows without an owner stay open."""
+    found, owner = get_owner(object_id)
+    return found and (owner is None or owner == session.get("email"))
 
 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         email = session.get("email")
-        if not email:
-            if _is_api_path():
-                return jsonify({"success": False, "error": "Unauthorized"}), 401
-            return redirect(url_for("login"))
-        user = get_user(email)
-        if not user or not _has_access(user):
+        user  = get_user(email) if email else None
+        if not user:
             session.clear()
             if _is_api_path():
                 return jsonify({"success": False, "error": "Unauthorized"}), 401
             return redirect(url_for("login"))
+        request.user = user
         return f(*args, **kwargs)
     return decorated
+
+
+def _start_session(email):
+    session.clear()
+    session["email"] = email
+    session.permanent = True
+    app.permanent_session_lifetime = timedelta(days=30)
+
+
+def _send_magic_link(email, subject, intro, hours=24):
+    """Email a one-time login link. Raises if the email provider fails."""
+    token   = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=hours)
+    set_magic_token(email, token, expires)
+    magic_url = request.host_url.rstrip("/") + url_for("magic_login", token=token)
+    resend.Emails.send({
+        "from":    RESEND_FROM,
+        "to":      [email],
+        "subject": subject,
+        "html":    f"<p>{intro}</p>" f'<p><a href="{magic_url}">{magic_url}</a></p>',
+    })
+    return magic_url
 
 
 # ── Public routes ─────────────────────────────────────────────────────────────
@@ -143,9 +227,7 @@ def login_required(f):
 def index():
     if session.get("email"):
         return redirect(url_for("app_page"))
-    success = request.args.get("success") == "1"
-    error   = request.args.get("error")
-    return render_template("index.html", success=success, error=error)
+    return render_template("index.html", free_generations=FREE_GENERATIONS)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -160,23 +242,36 @@ def login():
         user = get_user(email)
 
         if not user or not user.get("password_hash"):
-            return render_template("login.html", error="No account found. Check your email for a login link, or use Forgot Password.")
+            return render_template("login.html", error="No password set for this email yet. Use \"Email me a login link\" below.")
 
         if not check_password_hash(user["password_hash"], password):
             return render_template("login.html", error="Incorrect password.")
 
-        if not _has_access(user):
-            return render_template("login.html", error="Please purchase access before logging in.")
-
-        session["email"] = email
-        session.permanent = True
-        app.permanent_session_lifetime = timedelta(days=30)
+        _start_session(email)
         return redirect(url_for("app_page"))
 
-    error = None
-    if request.args.get("error") == "not_paid":
-        error = "Please purchase access before logging in."
-    return render_template("login.html", error=error)
+    return render_template("login.html")
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    """Free account: email → magic link → set password. Existing emails just get a login link."""
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        if not email or "@" not in email:
+            return render_template("login.html", signup=True, error="Please enter a valid email address.")
+        create_user(email)
+        try:
+            _send_magic_link(
+                email, "Welcome to ClipSnap — confirm your email",
+                f"Click the link below to confirm your email and start using ClipSnap. "
+                f"You get {FREE_GENERATIONS} free videos and 7 days of Tools. The link expires in 24 hours.",
+            )
+        except Exception as exc:
+            return render_template("login.html", signup=True, error=f"Could not send email: {exc}")
+        return render_template("login.html", sent=True, signup_sent=True, email=email)
+
+    return render_template("login.html", signup=True, free_generations=FREE_GENERATIONS)
 
 
 @app.route("/forgot", methods=["GET", "POST"])
@@ -185,25 +280,13 @@ def forgot():
         email = request.form.get("email", "").strip().lower()
         if not email or "@" not in email:
             return render_template("login.html", forgot=True, error="Please enter a valid email address.")
-
-        token   = secrets.token_urlsafe(32)
-        expires = datetime.now(timezone.utc) + timedelta(hours=24)
-        set_magic_token(email, token, expires)
-
-        magic_url = request.host_url.rstrip("/") + url_for("magic_login", token=token)
-        try:
-            resend.Emails.send({
-                "from":    RESEND_FROM,
-                "to":      [email],
-                "subject": "Your ClipSnap login link",
-                "html": (
-                    "<p>Click the link below to log in. It expires in 24 hours.</p>"
-                    f'<p><a href="{magic_url}">{magic_url}</a></p>'
-                ),
-            })
-        except Exception as exc:
-            return render_template("login.html", forgot=True, error=f"Could not send email: {exc}")
-
+        if get_user(email):
+            try:
+                _send_magic_link(email, "Your ClipSnap login link",
+                                 "Click the link below to log in. It expires in 24 hours.")
+            except Exception as exc:
+                return render_template("login.html", forgot=True, error=f"Could not send email: {exc}")
+        # Same answer for unknown emails, so the form can't be used to probe who has an account
         return render_template("login.html", sent=True, email=email)
 
     return render_template("login.html", forgot=True)
@@ -219,14 +302,8 @@ def magic_login():
     if not user:
         return render_template("login.html", error="Invalid or expired link. Please request a new one.")
 
-    expires = user["token_expires"]
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) > expires:
+    if datetime.now(timezone.utc) > _aware(user["token_expires"]):
         return render_template("login.html", error="This link has expired. Please request a new one.")
-
-    if not _has_access(user):
-        return redirect(url_for("index") + "?error=not_paid")
 
     clear_magic_token(user["email"])
 
@@ -234,9 +311,7 @@ def magic_login():
         session["pending_email"] = user["email"]
         return redirect(url_for("set_password_page"))
 
-    session["email"] = user["email"]
-    session.permanent = True
-    app.permanent_session_lifetime = timedelta(days=30)
+    _start_session(user["email"])
     return redirect(url_for("app_page"))
 
 
@@ -256,10 +331,7 @@ def set_password_page():
             return render_template("set_password.html", error="Passwords do not match.")
 
         set_password(email, generate_password_hash(password))
-        session.pop("pending_email", None)
-        session["email"] = email
-        session.permanent = True
-        app.permanent_session_lifetime = timedelta(days=30)
+        _start_session(email)
         return redirect(url_for("app_page"))
 
     return render_template("set_password.html")
@@ -271,21 +343,116 @@ def logout():
     return redirect(url_for("index"))
 
 
-# ── Stripe ────────────────────────────────────────────────────────────────────
+# ── Account & billing ─────────────────────────────────────────────────────────
 
-@app.route("/stripe-checkout", methods=["POST"])
-def stripe_checkout():
+@app.route("/me")
+@login_required
+def me():
+    return jsonify(_plan_info(request.user))
+
+
+@app.route("/account")
+@login_required
+def account_page():
+    user = request.user
+    notice = None
+    # Webhooks can lag a few seconds behind the redirect, so sync the finished checkout directly
+    checkout_id = request.args.get("checkout_session")
+    if checkout_id:
+        try:
+            cs = stripe.checkout.Session.retrieve(checkout_id).to_dict()
+            if cs.get("client_reference_id") == user["email"] and cs.get("subscription"):
+                _link_checkout(cs)
+                user = get_user(user["email"])
+            notice = "Thanks for subscribing! Pro is active." if _is_pro(user) else \
+                     "Payment received. Pro will switch on in a few seconds; refresh this page."
+        except Exception as exc:
+            print(f"[billing] could not sync checkout {checkout_id}: {exc}")
+    return render_template("account.html", info=_plan_info(user), notice=notice,
+                           error=request.args.get("error"))
+
+
+@app.route("/billing/checkout", methods=["POST"])
+@login_required
+def billing_checkout():
+    user = request.user
+    if _is_pro(user):
+        return redirect(url_for("account_page"))
+    price_id = os.environ.get("STRIPE_PRO_PRICE_ID", "")
+    if not price_id:
+        return redirect(url_for("account_page", error="Payments are not configured yet."))
+
+    params = {
+        "mode":                "subscription",
+        "line_items":          [{"price": price_id, "quantity": 1}],
+        # Stripe Managed Payments: Stripe (via Link) is merchant of record and handles VAT/sales tax
+        "managed_payments":    {"enabled": True},
+        "client_reference_id": user["email"],
+        "subscription_data":   {"metadata": {"email": user["email"]}},
+        "success_url":         url_for("account_page", _external=True) + "?checkout_session={CHECKOUT_SESSION_ID}",
+        "cancel_url":          url_for("account_page", _external=True),
+    }
+    if user.get("stripe_customer_id"):
+        params["customer"] = user["stripe_customer_id"]
+    else:
+        params["customer_email"] = user["email"]
     try:
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[{"price": os.environ.get("STRIPE_PRICE_ID"), "quantity": 1}],
-            mode="payment",
-            success_url=url_for("index", _external=True) + "?success=1",
-            cancel_url=url_for("index", _external=True),
-        )
-        return jsonify({"url": checkout_session.url})
+        cs = stripe.checkout.Session.create(**params)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        print(f"[billing] checkout failed for {user['email']}: {exc}")
+        return redirect(url_for("account_page", error="Could not open checkout. Please try again."))
+    return redirect(cs.url, code=303)
+
+
+@app.route("/billing/portal", methods=["POST"])
+@login_required
+def billing_portal():
+    customer = request.user.get("stripe_customer_id")
+    if not customer:
+        return redirect(url_for("account_page"))
+    try:
+        ps = stripe.billing_portal.Session.create(customer=customer,
+                                                  return_url=url_for("account_page", _external=True))
+    except Exception as exc:
+        print(f"[billing] portal failed for {request.user['email']}: {exc}")
+        return redirect(url_for("account_page", error="Could not open billing settings. You can also manage the subscription at link.com."))
+    return redirect(ps.url, code=303)
+
+
+def _sync_subscription(sub, email=None):
+    """Store a Stripe subscription's state on the matching user (found by customer id, then email)."""
+    customer = sub.get("customer")
+    user = get_user_by_customer(customer) if customer else None
+    if not user:
+        email = email or (sub.get("metadata") or {}).get("email")
+        user  = get_user(email) if email else None
+        if not user:
+            print(f"[billing] no user for subscription {sub.get('id')} (customer {customer})")
+            return
+        if customer:
+            set_stripe_customer(user["email"], customer)
+    # API 2025-03-31.basil+ moved the billing period onto subscription items
+    items      = (sub.get("items") or {}).get("data") or []
+    period_end = sub.get("current_period_end") or (items[0].get("current_period_end") if items else None)
+    update_subscription(
+        user["email"], sub.get("id"), sub.get("status"),
+        datetime.fromtimestamp(period_end, timezone.utc) if period_end else None,
+        bool(sub.get("cancel_at_period_end") or sub.get("cancel_at")),
+    )
+
+
+def _link_checkout(cs):
+    """Attach a completed subscription checkout to its user and pull the subscription state."""
+    email = (cs.get("client_reference_id") or
+             (cs.get("customer_details") or {}).get("email") or "").strip().lower()
+    if not email or not get_user(email):
+        print(f"[billing] checkout {cs.get('id')} has no known user ({email!r})")
+        return
+    if cs.get("customer"):
+        set_stripe_customer(email, cs["customer"])
+    sub_id = cs.get("subscription")
+    if sub_id:
+        _sync_subscription(stripe.Subscription.retrieve(sub_id).to_dict(), email)
 
 
 @app.route("/stripe-webhook", methods=["POST"])
@@ -299,31 +466,24 @@ def stripe_webhook():
     except (ValueError, stripe.error.SignatureVerificationError):
         return jsonify({"error": "Invalid payload"}), 400
 
-    if event["type"] == "checkout.session.completed":
-        cs    = event["data"]["object"]
-        customer_details = cs.customer_details if hasattr(cs, "customer_details") else None
-        email = (customer_details.email if customer_details else None) or (cs.customer_email if hasattr(cs, "customer_email") else None)
+    etype = event["type"]
+    obj   = event["data"]["object"].to_dict()
+
+    if etype == "checkout.session.completed" and obj.get("mode") == "subscription":
+        _link_checkout(obj)
+    elif etype == "checkout.session.completed":
+        # Legacy one-time $15 lifetime purchase
+        email = ((obj.get("customer_details") or {}).get("email") or obj.get("customer_email") or "").strip().lower()
         if email:
-            email = email.strip().lower()
             upsert_user_paid(email)
-
-            token   = secrets.token_urlsafe(32)
-            expires = datetime.now(timezone.utc) + timedelta(hours=24)
-            set_magic_token(email, token, expires)
-
-            magic_url = request.host_url.rstrip("/") + url_for("magic_login", token=token)
             try:
-                resend.Emails.send({
-                    "from":    RESEND_FROM,
-                    "to":      [email],
-                    "subject": "Your ClipSnap login link",
-                    "html": (
-                        "<p>Thank you for your purchase! Click the link below to log in. It expires in 24 hours.</p>"
-                        f'<p><a href="{magic_url}">{magic_url}</a></p>'
-                    ),
-                })
+                _send_magic_link(email, "Your ClipSnap login link",
+                                 "Thank you for your purchase! Click the link below to log in. It expires in 24 hours.")
             except Exception as exc:
                 print(f"[webhook] failed to send magic link to {email}: {exc}")
+    elif etype in ("customer.subscription.created", "customer.subscription.updated",
+                   "customer.subscription.deleted"):
+        _sync_subscription(obj)
 
     return jsonify({"received": True})
 
@@ -452,13 +612,18 @@ def list_fonts():
 @app.route("/compose", methods=["POST"])
 @login_required
 def compose():
-    session_id  = uuid.uuid4().hex[:10]
-    session_dir = os.path.join(UPLOAD_DIR, session_id)
-    os.makedirs(session_dir, exist_ok=True)
-
     clip_files = request.files.getlist("clips")
     if not clip_files or clip_files[0].filename == "":
         return jsonify({"success": False, "error": "No video clips uploaded"}), 400
+
+    email = request.user["email"]
+    if not use_generation(email, None if _is_pro(request.user) else FREE_GENERATIONS):
+        return _upgrade_error(f"You've used all {FREE_GENERATIONS} free videos. "
+                              "Upgrade to Pro for unlimited videos and variations.")
+
+    session_id  = uuid.uuid4().hex[:10]
+    session_dir = os.path.join(UPLOAD_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
 
     try:
         clip_names = json.loads(request.form.get("clip_names", "[]"))
@@ -560,11 +725,13 @@ def compose():
         transition_duration=transition_duration,
         normalize_audio=normalize_audio,
         export_opts=export_opts,
+        owner_email=email,
     )
 
     job_id = uuid.uuid4().hex[:10]
-    create_render_job(job_id)
-    threading.Thread(target=_render_job, args=(session_id, text_opts, False, job_id), daemon=True).start()
+    create_render_job(job_id, email)
+    threading.Thread(target=_render_job, args=(session_id, text_opts, False, job_id),
+                     kwargs={"refund": lambda: refund_generation(email)}, daemon=True).start()
     return jsonify({"success": True, "session_id": session_id, "job_id": job_id})
 
 
@@ -594,8 +761,11 @@ def variation():
     data       = request.get_json(force=True)
     session_id = data.get("session_id", "")
 
-    if not get_compose_session(session_id):
+    if not get_compose_session(session_id) or not _owns(session_id):
         return jsonify({"success": False, "error": "Session not found — please re-upload files"}), 404
+    if not use_session_variation(session_id, None if _is_pro(request.user) else FREE_VARIATIONS):
+        return _upgrade_error(f"Free videos include {FREE_VARIATIONS} variations each. "
+                              "Upgrade to Pro for unlimited variations.")
 
     text_opts = _text_opts_from_json(data)
     transition, transition_duration = (
@@ -612,12 +782,13 @@ def variation():
     )
 
     job_id = uuid.uuid4().hex[:10]
-    create_render_job(job_id)
-    threading.Thread(target=_render_job, args=(session_id, text_opts, True, job_id), daemon=True).start()
+    create_render_job(job_id, request.user["email"])
+    threading.Thread(target=_render_job, args=(session_id, text_opts, True, job_id),
+                     kwargs={"refund": lambda: refund_session_variation(session_id)}, daemon=True).start()
     return jsonify({"success": True, "job_id": job_id})
 
 
-def _run_composition(session_id, text_opts, variation, job_id):
+def _run_composition(session_id, text_opts, variation, job_id, refund=None):
     vnum = increment_variation_count(session_id)
     s    = get_compose_session(session_id)
 
@@ -669,17 +840,21 @@ def _run_composition(session_id, text_opts, variation, job_id):
     except Exception as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
         set_render_job_error(job_id, str(exc))
+        if refund:
+            refund()  # a failed render shouldn't use up the free quota
 
 
-def _render_job(session_id, text_opts, variation, job_id):
+def _render_job(session_id, text_opts, variation, job_id, refund=None):
     with _render_semaphore:
-        _run_composition(session_id, text_opts, variation, job_id)
+        _run_composition(session_id, text_opts, variation, job_id, refund)
 
 
 @app.route("/tools/<tool>", methods=["POST"])
 @login_required
 def tools_run(tool):
     """Run one Tools-tab utility on an uploaded file in the background."""
+    if not _has_tools(request.user):
+        return _upgrade_error("Your 7-day Tools trial has ended. Upgrade to Pro to keep using Tools.")
     option = request.form.get("option", "")
     if option not in TOOL_OPTIONS.get(tool, ()):
         return jsonify({"success": False, "error": "Unknown tool or option"}), 400
@@ -697,7 +872,7 @@ def tools_run(tool):
     download_name = output_name(tool, option, original)
     output_file   = f"{job_id}_{download_name}"
 
-    create_render_job(job_id)
+    create_render_job(job_id, request.user["email"])
     threading.Thread(
         target=_tool_job,
         args=(job_id, tool, option, src, work_dir, output_file, download_name),
@@ -729,7 +904,7 @@ def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name):
 @login_required
 def job_status(job_id):
     job = get_render_job(job_id)
-    if not job:
+    if not job or not _owns(job_id):
         return jsonify({"status": "error", "error": "Job not found"}), 404
     if job["status"] == "done":
         return jsonify({"status": "done", "result": job["result"]})
@@ -741,7 +916,14 @@ def job_status(job_id):
 @app.route("/output/<path:filename>")
 @login_required
 def serve_output(filename):
+    if not _owns_output(filename):
+        return jsonify({"success": False, "error": "File not found"}), 404
     return send_from_directory(OUTPUT_DIR, filename)
+
+
+def _owns_output(filename) -> bool:
+    """Output files start with their session id (renders) or job id (tools): <id>_..."""
+    return _owns(os.path.basename(filename).split("_", 1)[0])
 
 
 @app.route("/output-audio/<path:filename>")
@@ -749,7 +931,7 @@ def serve_output(filename):
 def serve_output_audio(filename):
     """MP3 of a rendered video's soundtrack, extracted on first request."""
     src = safe_join(OUTPUT_DIR, filename)
-    if not src or not os.path.isfile(src):
+    if not src or not os.path.isfile(src) or not _owns_output(filename):
         return jsonify({"success": False, "error": "File not found"}), 404
     mp3_name = os.path.splitext(os.path.basename(src))[0] + ".mp3"
     mp3_path = os.path.join(OUTPUT_DIR, mp3_name)

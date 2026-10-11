@@ -189,23 +189,13 @@
 
 <div class="container">
 
-  <div class="badge">One-time purchase</div>
+  <div class="badge">Free to start</div>
 
-  <h1>Video <span>Compositor</span></h1>
+  <h1>Clip <span>Snap</span></h1>
   <p class="subtitle">
     Assemble, shuffle, and export vertical video reels in seconds.
     Upload your clips and audio — we handle the rest.
   </p>
-
-  {% if success %}
-  <div class="alert alert-success">
-    Payment received! Check your email for a login link, or sign in below.
-  </div>
-  {% elif error == 'not_paid' %}
-  <div class="alert alert-error">
-    No purchase found for that email. Please buy access first.
-  </div>
-  {% endif %}
 
   <div class="features">
     <div class="feature">
@@ -239,37 +229,13 @@
   </div>
 
   <div class="cta-group">
-    <button class="btn-buy" id="buy-btn" onclick="buyNow()">
-      Buy for $15
-    </button>
-    <p class="one-time">One-time payment &nbsp;·&nbsp; Lifetime access &nbsp;·&nbsp; No subscription</p>
-    <p class="login-link">Already purchased? <a href="/login">Sign in</a></p>
+    <a class="btn-buy" href="/signup" style="text-decoration:none">Start free</a>
+    <p class="one-time">{{ free_generations }} free videos &nbsp;·&nbsp; No card needed &nbsp;·&nbsp; Pro $10/month, cancel anytime</p>
+    <p class="login-link">Already have an account? <a href="/login">Sign in</a></p>
   </div>
 
 </div>
 
-<script>
-  async function buyNow() {
-    const btn = document.getElementById('buy-btn');
-    btn.disabled = true;
-    btn.innerHTML = '<div class="spinner"></div> Redirecting…';
-    try {
-      const res  = await fetch('/stripe-checkout', { method: 'POST' });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        alert(data.error || 'Something went wrong. Please try again.');
-        btn.disabled = false;
-        btn.textContent = 'Buy for $15';
-      }
-    } catch (e) {
-      alert('Network error. Please try again.');
-      btn.disabled = false;
-      btn.textContent = 'Buy for $15';
-    }
-  }
-</script>
 
 </body>
 </html>

@@ -160,7 +160,14 @@
     height: 1px;
     background: var(--border);
   }
+
+  /* Honeypot: invisible to people, bots fill it in */
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .cf-turnstile { margin-bottom: 16px; min-height: 65px; }
 </style>
+{% if turnstile_site_key %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endif %}
 </head>
 <body>
 
@@ -195,6 +202,13 @@
         <label for="email">Email address</label>
         <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
       </div>
+      <div class="hp" aria-hidden="true">
+        <label for="website">Website</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+      </div>
+      {% if turnstile_site_key %}
+      <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="dark"></div>
+      {% endif %}
       <button type="submit" class="btn">Sign up free</button>
     </form>
 
@@ -216,6 +230,13 @@
         <label for="email">Email address</label>
         <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
       </div>
+      <div class="hp" aria-hidden="true">
+        <label for="website">Website</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+      </div>
+      {% if turnstile_site_key %}
+      <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="dark"></div>
+      {% endif %}
       <button type="submit" class="btn">Send login link</button>
     </form>
 

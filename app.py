@@ -4,6 +4,8 @@ import secrets
 import shutil
 import threading
 import time
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -26,6 +28,7 @@ from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 create_compose_session, get_compose_session,
                 update_compose_session_options, increment_variation_count,
                 use_session_variation, refund_session_variation, get_owner,
+                hit_rate_limit, purge_rate_events,
                 list_all_session_ids_with_clip_paths, delete_compose_session,
                 create_render_job, get_render_job,
                 set_render_job_done, set_render_job_error)
@@ -41,7 +44,7 @@ for d in (UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, FONTS_DIR):
 
 app = Flask(__name__)
 # Railway terminates HTTPS at its proxy; trust X-Forwarded-* so external URLs (Stripe, magic links) are https
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2 GB
 app.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-key-change-in-prod")
 
@@ -53,6 +56,11 @@ RESEND_FROM    = os.environ.get("RESEND_FROM_EMAIL", "noreply@clipsnap.app")
 FREE_GENERATIONS     = 5
 FREE_VARIATIONS      = 3
 ACTIVE_SUB_STATUSES  = {"active", "trialing", "past_due"}  # past_due: Stripe is still retrying the card
+
+# Bot protection for forms that send email. Without the keys Turnstile is skipped (rate limits still apply).
+TURNSTILE_SITE_KEY   = os.environ.get("TURNSTILE_SITE_KEY", "")
+TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 # NOTE: цей семафор per-process. З N gunicorn workers реальний максимум одночасних
 # FFmpeg-рендерів = MAX_CONCURRENT_RENDERS × N. Якщо RENDERS_TOTAL має бути обмежений
@@ -104,6 +112,7 @@ def _cleanup_loop():
         try:
             cleanup_old_files(UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, max_age)
             _purge_orphaned_sessions()
+            purge_rate_events()
         except Exception as exc:
             print(f"[cleanup] error: {exc}")
         time.sleep(interval * 60)
@@ -206,6 +215,40 @@ def _start_session(email):
     app.permanent_session_lifetime = timedelta(days=30)
 
 
+@app.context_processor
+def _inject_turnstile():
+    return {"turnstile_site_key": TURNSTILE_SITE_KEY}
+
+
+def _is_human() -> bool:
+    """Cloudflare Turnstile check for forms that send email."""
+    if not TURNSTILE_SECRET_KEY:
+        return True
+    token = request.form.get("cf-turnstile-response", "")
+    if not token:
+        return False
+    data = urllib.parse.urlencode({"secret": TURNSTILE_SECRET_KEY, "response": token,
+                                   "remoteip": request.remote_addr or ""}).encode()
+    try:
+        with urllib.request.urlopen(TURNSTILE_VERIFY_URL, data=data, timeout=5) as r:
+            return bool(json.load(r).get("success"))
+    except Exception as exc:
+        # Cloudflare unreachable: let the request through, the rate limits still apply
+        print(f"[turnstile] verify failed, allowing request: {exc}")
+        return True
+
+
+def _rate_ok(*rules) -> bool:
+    """rules: (key, limit, window_seconds). Every rule is checked and counted."""
+    return all([hit_rate_limit(key, limit, window) for key, limit, window in rules])
+
+
+def _email_rate_rules(email):
+    ip = request.remote_addr or "unknown"
+    return (("email-ip:" + ip, 5, 3600),     # 5 emails per hour from one IP
+            ("email-to:" + email, 3, 3600))  # 3 emails per hour to one address
+
+
 def _send_magic_link(email, subject, intro, hours=24):
     """Email a one-time login link. Raises if the email provider fails."""
     token   = secrets.token_urlsafe(32)
@@ -239,6 +282,10 @@ def login():
         if not email or "@" not in email:
             return render_template("login.html", error="Please enter a valid email address.")
 
+        if not _rate_ok(("login-ip:" + (request.remote_addr or "unknown"), 20, 900),
+                        ("login-email:" + email, 10, 900)):
+            return render_template("login.html", error="Too many sign-in attempts. Please wait 15 minutes and try again."), 429
+
         user = get_user(email)
 
         if not user or not user.get("password_hash"):
@@ -260,6 +307,13 @@ def signup():
         email = request.form.get("email", "").strip().lower()
         if not email or "@" not in email:
             return render_template("login.html", signup=True, error="Please enter a valid email address.")
+        if request.form.get("website"):
+            # Honeypot (hidden field only bots fill in): answer like a success so the bot learns nothing
+            return render_template("login.html", sent=True, signup_sent=True, email=email)
+        if not _is_human():
+            return render_template("login.html", signup=True, error="Please complete the verification and try again.")
+        if not _rate_ok(*_email_rate_rules(email)):
+            return render_template("login.html", signup=True, error="Too many requests. Please try again in an hour."), 429
         create_user(email)
         try:
             _send_magic_link(
@@ -280,6 +334,12 @@ def forgot():
         email = request.form.get("email", "").strip().lower()
         if not email or "@" not in email:
             return render_template("login.html", forgot=True, error="Please enter a valid email address.")
+        if request.form.get("website"):
+            return render_template("login.html", sent=True, email=email)
+        if not _is_human():
+            return render_template("login.html", forgot=True, error="Please complete the verification and try again.")
+        if not _rate_ok(*_email_rate_rules(email)):
+            return render_template("login.html", forgot=True, error="Too many requests. Please try again in an hour."), 429
         if get_user(email):
             try:
                 _send_magic_link(email, "Your ClipSnap login link",

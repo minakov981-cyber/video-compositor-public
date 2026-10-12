@@ -83,6 +83,13 @@ def init_db():
             )
         """)
         cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS owner_email TEXT")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS rate_events (
+                key        TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS rate_events_key_time ON rate_events (key, created_at)")
 
 
 def get_user(email: str):
@@ -379,3 +386,30 @@ def get_owner(object_id: str):
         )
         row = cur.fetchone()
         return (row is not None, row["owner_email"] if row else None)
+
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+
+def hit_rate_limit(key: str, limit: int, window_seconds: int) -> bool:
+    """Record one attempt for key; False if it already had `limit` attempts in the window.
+
+    Lives in Postgres so the limit holds across all gunicorn workers.
+    """
+    with _db() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM rate_events WHERE key = %s "
+            "AND created_at > NOW() - make_interval(secs => %s)",
+            (key, window_seconds),
+        )
+        if cur.fetchone()["n"] >= limit:
+            return False
+        cur.execute("INSERT INTO rate_events (key) VALUES (%s)", (key,))
+        return True
+
+
+def purge_rate_events(max_age_hours: int = 24):
+    with _db() as cur:
+        cur.execute(
+            "DELETE FROM rate_events WHERE created_at < NOW() - make_interval(hours => %s)",
+            (max_age_hours,),
+        )

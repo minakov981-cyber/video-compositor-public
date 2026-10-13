@@ -45,6 +45,8 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_period_end TIMESTAMPTZ")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE")
+        # One-time welcome message: only new free signups get TRUE (see create_user), existing users stay FALSE
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS welcome_pending BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS compose_sessions (
                 session_id            TEXT PRIMARY KEY,
@@ -151,7 +153,15 @@ def grant_trial(email: str, days: int):
 def create_user(email: str):
     """Register a free account; no-op if the email already exists."""
     with _db() as cur:
-        cur.execute("INSERT INTO users (email) VALUES (%s) ON CONFLICT (email) DO NOTHING", (email,))
+        cur.execute(
+            "INSERT INTO users (email, welcome_pending) VALUES (%s, TRUE) ON CONFLICT (email) DO NOTHING",
+            (email,),
+        )
+
+
+def mark_welcome_seen(email: str):
+    with _db() as cur:
+        cur.execute("UPDATE users SET welcome_pending = FALSE WHERE email = %s", (email,))
 
 
 def use_generation(email: str, limit=None) -> bool:

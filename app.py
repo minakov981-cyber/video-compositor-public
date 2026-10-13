@@ -23,7 +23,7 @@ from tools import TOOL_OPTIONS, output_name, run_tool
 from compositor import TRANSITIONS, clip_speed, compose_video, extract_audio_mp3, normalize_export_opts
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
-                create_user, use_generation, refund_generation,
+                create_user, mark_welcome_seen, use_generation, refund_generation,
                 set_stripe_customer, get_user_by_customer, update_subscription,
                 create_compose_session, get_compose_session,
                 update_compose_session_options, increment_variation_count,
@@ -180,6 +180,7 @@ def _plan_info(user) -> dict:
         "period_end":        period_end.isoformat() if period_end else None,
         "cancel_at_period_end": bool(user.get("cancel_at_period_end")),
         "has_billing":       bool(user.get("stripe_customer_id")),
+        "welcome":           bool(user.get("welcome_pending")),
     }
 
 
@@ -409,6 +410,13 @@ def logout():
 @login_required
 def me():
     return jsonify(_plan_info(request.user))
+
+
+@app.route("/me/welcome-seen", methods=["POST"])
+@login_required
+def welcome_seen():
+    mark_welcome_seen(request.user["email"])
+    return jsonify({"success": True})
 
 
 @app.route("/account")

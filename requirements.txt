@@ -4,3 +4,4 @@ Pillow
 stripe>=15.0.0
 psycopg2-binary
 resend
+sentry-sdk[flask]

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import resend
+import sentry_sdk
 import stripe
 from flask import (Flask, jsonify, redirect, render_template, request,
                    send_from_directory, session, url_for)
@@ -41,6 +42,16 @@ FONTS_DIR  = "fonts"
 
 for d in (UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, FONTS_DIR):
     os.makedirs(d, exist_ok=True)
+
+# Error monitoring: only active when SENTRY_DSN is set. No IPs or cookies are sent (send_default_pii=False).
+if os.environ.get("SENTRY_DSN"):
+    sentry_sdk.init(
+        dsn=os.environ["SENTRY_DSN"],
+        send_default_pii=False,
+        traces_sample_rate=0.0,
+        environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME", "production"),
+        release=os.environ.get("RAILWAY_GIT_COMMIT_SHA") or None,
+    )
 
 app = Flask(__name__)
 # Railway terminates HTTPS at its proxy; trust X-Forwarded-* so external URLs (Stripe, magic links) are https
@@ -86,6 +97,7 @@ _render_semaphore = threading.Semaphore(MAX_CONCURRENT_RENDERS)
 try:
     init_db()
 except Exception as exc:
+    sentry_sdk.capture_exception(exc)
     print(f"[db] init failed (will retry on first request): {exc}")
 
 
@@ -122,6 +134,7 @@ def _cleanup_loop():
             _purge_orphaned_sessions()
             purge_rate_events()
         except Exception as exc:
+            sentry_sdk.capture_exception(exc)
             print(f"[cleanup] error: {exc}")
         time.sleep(interval * 60)
 
@@ -213,6 +226,7 @@ def login_required(f):
                 return jsonify({"success": False, "error": "Unauthorized"}), 401
             return redirect(url_for("login"))
         request.user = user
+        sentry_sdk.set_user({"id": str(user["id"])})
         return f(*args, **kwargs)
     return decorated
 
@@ -458,6 +472,7 @@ def account_page():
             notice = "Thanks for subscribing! Pro is active." if _is_pro(user) else \
                      "Payment received. Pro will switch on in a few seconds; refresh this page."
         except Exception as exc:
+            sentry_sdk.capture_exception(exc)
             print(f"[billing] could not sync checkout {checkout_id}: {exc}")
     return render_template("account.html", info=_plan_info(user), notice=notice,
                            error=request.args.get("error"))
@@ -490,6 +505,7 @@ def billing_checkout():
     try:
         cs = stripe.checkout.Session.create(**params)
     except Exception as exc:
+        sentry_sdk.capture_exception(exc)
         print(f"[billing] checkout failed for {user['email']}: {exc}")
         return redirect(url_for("account_page", error="Could not open checkout. Please try again."))
     return redirect(cs.url, code=303)
@@ -505,6 +521,7 @@ def billing_portal():
         ps = stripe.billing_portal.Session.create(customer=customer,
                                                   return_url=url_for("account_page", _external=True))
     except Exception as exc:
+        sentry_sdk.capture_exception(exc)
         print(f"[billing] portal failed for {request.user['email']}: {exc}")
         return redirect(url_for("account_page", error="Could not open billing settings. You can also manage the subscription at link.com."))
     return redirect(ps.url, code=303)
@@ -593,6 +610,14 @@ def admin_login():
         session["admin"] = True
         return redirect(url_for("admin_page"))
     return render_template("admin.html", admin_ok=False, error="Incorrect secret.")
+
+
+@app.route("/admin/sentry-test")
+def admin_sentry_test():
+    """Deliberate error to check that Sentry receives reports (admin only)."""
+    if session.get("admin") is not True:
+        return jsonify({"error": "Forbidden"}), 403
+    raise RuntimeError("Sentry test error from /admin/sentry-test")
 
 
 @app.route("/admin/grant-trial", methods=["POST"])
@@ -931,8 +956,20 @@ def _run_composition(session_id, text_opts, variation, job_id, refund=None):
     except Exception as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
         set_render_job_error(job_id, str(exc))
+        _report_job_error(exc, job_id)
         if refund:
             refund()  # a failed render shouldn't use up the free quota
+
+
+def _report_job_error(exc, job_id, **tags):
+    """Send a background render/tool failure to Sentry. ValueErrors are bad input (e.g. no audio track), not bugs."""
+    if isinstance(exc, ValueError):
+        return
+    with sentry_sdk.new_scope() as scope:
+        scope.set_tag("job_id", job_id)
+        for key, value in tags.items():
+            scope.set_tag(key, value)
+        sentry_sdk.capture_exception(exc)
 
 
 def _render_job(session_id, text_opts, variation, job_id, refund=None):
@@ -987,6 +1024,7 @@ def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name):
             })
         except Exception as exc:
             set_render_job_error(job_id, str(exc))
+            _report_job_error(exc, job_id, tool=tool)
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 

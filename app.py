@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import secrets
 import shutil
 import threading
@@ -44,14 +45,24 @@ for d in (UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, FONTS_DIR):
     os.makedirs(d, exist_ok=True)
 
 # Error monitoring: only active when SENTRY_DSN is set. No IPs or cookies are sent (send_default_pii=False).
-if os.environ.get("SENTRY_DSN"):
-    sentry_sdk.init(
-        dsn=os.environ["SENTRY_DSN"],
-        send_default_pii=False,
-        traces_sample_rate=0.0,
-        environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME", "production"),
-        release=os.environ.get("RAILWAY_GIT_COMMIT_SHA") or None,
-    )
+# Picks the DSN URL out of whatever was pasted (quotes, `dsn="..."`, even Sentry's whole setup snippet)
+# and never stops the app from booting on a bad value.
+_sentry_raw = os.environ.get("SENTRY_DSN", "")
+_sentry_match = re.search(r"https?://[^\s\"']+@[^\s\"']+/\d+", _sentry_raw)
+_sentry_dsn = _sentry_match.group(0) if _sentry_match else ""
+if _sentry_raw.strip() and not _sentry_dsn:
+    print("[sentry] disabled, SENTRY_DSN does not contain a DSN like https://<key>@<host>/<project>")
+if _sentry_dsn:
+    try:
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            send_default_pii=False,
+            traces_sample_rate=0.0,
+            environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME", "production"),
+            release=os.environ.get("RAILWAY_GIT_COMMIT_SHA") or None,
+        )
+    except Exception as exc:
+        print(f"[sentry] disabled, SENTRY_DSN is not a valid DSN: {exc}")
 
 app = Flask(__name__)
 # Railway terminates HTTPS at its proxy; trust X-Forwarded-* so external URLs (Stripe, magic links) are https
@@ -221,7 +232,8 @@ def login_required(f):
         email = session.get("email")
         user  = get_user(email) if email else None
         if not user:
-            session.clear()
+            # Only drop the stale user login; an admin login in the same browser stays
+            session.pop("email", None)
             if _is_api_path():
                 return jsonify({"success": False, "error": "Unauthorized"}), 401
             return redirect(url_for("login"))
@@ -232,7 +244,10 @@ def login_required(f):
 
 
 def _start_session(email):
+    is_admin = session.get("admin") is True
     session.clear()
+    if is_admin:
+        session["admin"] = True  # signing in as a user keeps an admin login in the same browser
     session["email"] = email
     session.permanent = True
     app.permanent_session_lifetime = timedelta(days=30)

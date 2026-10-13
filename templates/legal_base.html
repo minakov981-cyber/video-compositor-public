@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}{% endblock %} — ClipSnap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0b; --bg-card: #18181b; --border: #26262a;
+    --text: #f5f3ef; --text-dim: #9a9aa2; --text-faint: #5c5c63; --accent: #ff8e00;
+    --display: 'Sora', sans-serif; --body: 'Inter', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--body); line-height: 1.65;
+         min-height: 100vh; padding: 32px 16px 64px; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 32px; }
+  .brand { font-family: var(--display); font-weight: 800; font-size: 1.3rem; color: var(--text); text-decoration: none; }
+  .brand span { color: var(--accent); }
+  .top a.back { color: var(--text-dim); font-size: .88rem; text-decoration: none; }
+  .top a.back:hover { color: var(--text); }
+  h1 { font-family: var(--display); font-size: clamp(1.6rem, 5vw, 2.1rem); font-weight: 800; letter-spacing: -.01em; margin-bottom: 6px; }
+  .updated { color: var(--text-faint); font-size: .85rem; margin-bottom: 28px; }
+  .doc { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 28px 24px; }
+  .doc h2 { font-family: var(--display); font-size: 1.1rem; font-weight: 700; margin: 28px 0 10px; }
+  .doc h2:first-child { margin-top: 0; }
+  .doc p, .doc li { color: var(--text-dim); font-size: .95rem; }
+  .doc p { margin-bottom: 12px; }
+  .doc ul { margin: 0 0 12px 20px; display: grid; gap: 6px; }
+  .doc strong { color: var(--text); font-weight: 600; }
+  .doc a { color: var(--accent); text-decoration: none; }
+  .doc a:hover { text-decoration: underline; }
+  .doc table { width: 100%; border-collapse: collapse; margin: 4px 0 14px; font-size: .88rem; }
+  .doc th, .doc td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  .doc th { color: var(--text); font-weight: 600; }
+  .table-scroll { overflow-x: auto; }
+  .legal-footer { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center; font-size: .85rem; }
+  .legal-footer a { color: var(--text-dim); text-decoration: none; }
+  .legal-footer a:hover, .legal-footer a.active { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="brand" href="/">Clip <span>Snap</span></a>
+    <a class="back" href="{{ '/app' if session.get('email') else '/' }}">← Back to Clip Snap</a>
+  </div>
+
+  <h1>{% block heading %}{% endblock %}</h1>
+  <p class="updated">Last updated: {{ legal.updated }}</p>
+
+  <div class="doc">
+    {% block content %}{% endblock %}
+  </div>
+
+  <nav class="legal-footer">
+    <a href="/terms" class="{{ 'active' if request.path == '/terms' }}">Terms of Service</a>
+    <a href="/privacy" class="{{ 'active' if request.path == '/privacy' }}">Privacy Policy</a>
+    <a href="/refunds" class="{{ 'active' if request.path == '/refunds' }}">Refund Policy</a>
+    <a href="mailto:{{ legal.email }}">Contact</a>
+  </nav>
+</div>
+</body>
+</html>

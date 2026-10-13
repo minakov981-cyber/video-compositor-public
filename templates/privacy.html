@@ -1,0 +1,57 @@
+{% extends "legal_base.html" %}
+{% block title %}Privacy Policy{% endblock %}
+{% block heading %}Privacy Policy{% endblock %}
+{% block content %}
+<h2>1. Who is responsible for your data</h2>
+<p>The controller of your personal data is <strong>{{ legal.owner }}</strong>, {{ legal.location }}.
+For anything about your data, email <a href="mailto:{{ legal.email }}">{{ legal.email }}</a>.</p>
+<p>We collect only what we need to run Clip Snap. We don't sell your data, show ads or use tracking or analytics cookies.</p>
+
+<h2>2. What we collect and why</h2>
+<div class="table-scroll">
+<table>
+  <tr><th>Data</th><th>Why</th><th>Legal basis (GDPR)</th></tr>
+  <tr><td>Email address, password (stored only as a secure hash)</td><td>Your account, login links, important service emails</td><td>Contract, Art. 6(1)(b)</td></tr>
+  <tr><td>Usage counts (free videos and variations used), signup date, plan</td><td>Free-plan limits and your subscription</td><td>Contract, Art. 6(1)(b)</td></tr>
+  <tr><td>Video clips, music and text you upload, and the videos you create</td><td>Making your videos</td><td>Contract, Art. 6(1)(b)</td></tr>
+  <tr><td>Stripe customer ID and subscription status (no card details)</td><td>Knowing whether Pro is active</td><td>Contract, Art. 6(1)(b)</td></tr>
+  <tr><td>IP address and basic request logs</td><td>Security, stopping spam and abuse, rate limits</td><td>Legitimate interest, Art. 6(1)(f)</td></tr>
+</table>
+</div>
+<p>Card and payment details are entered directly with Stripe/Link. We never see or store them.</p>
+
+<h2>3. Cookies and local storage</h2>
+<p>We use one essential cookie to keep you signed in (for up to 30 days). The app also remembers small interface preferences, such as the last tab you opened, in your browser's local storage.
+These are needed for the service to work, so no consent banner is required. Cloudflare Turnstile, our anti-bot check on the signup form, may process technical data from your browser to tell people from bots.</p>
+
+<h2>4. Who we share data with</h2>
+<p>We use these providers to run Clip Snap. They process data only as needed for their service:</p>
+<ul>
+  <li><strong>Railway</strong>: hosting of the app, database and files (servers may be in the USA).</li>
+  <li><strong>Stripe and Link</strong>: payments and subscriptions. For purchases, Link is the reseller and processes your payment data under its own <a href="https://link.com/privacy" target="_blank" rel="noopener">privacy policy</a>.</li>
+  <li><strong>Resend</strong>: sending account emails (login and confirmation links).</li>
+  <li><strong>Cloudflare</strong>: domain, DNS and Turnstile bot protection.</li>
+  <li><strong>Google Fonts</strong>: fonts used on the pages; your browser loads them from Google, which receives your IP address.</li>
+</ul>
+<p>Some of these providers are outside the European Economic Area. Transfers are covered by the EU Standard Contractual Clauses or the EU-US Data Privacy Framework.</p>
+
+<h2>5. How long we keep data</h2>
+<ul>
+  <li><strong>Uploaded files and finished videos:</strong> deleted automatically, normally within 24 hours.</li>
+  <li><strong>IP-based security records:</strong> deleted after 24 hours.</li>
+  <li><strong>Account data:</strong> kept while your account exists, and deleted when you ask us to delete the account.</li>
+  <li><strong>Payment records:</strong> kept by Stripe/Link for as long as tax and accounting laws require.</li>
+</ul>
+
+<h2>6. Your rights</h2>
+<p>You can ask us to access, correct, delete or export your data, to restrict how we use it, or object to processing based on legitimate interest.
+Email <a href="mailto:{{ legal.email }}">{{ legal.email }}</a> from your account's address and we'll reply within 30 days.</p>
+<p>You also have the right to complain to a data protection authority. In Poland this is the President of the Personal Data Protection Office
+(<a href="https://uodo.gov.pl" target="_blank" rel="noopener">UODO</a>), or you can contact the authority in your own EU country.</p>
+
+<h2>7. Children</h2>
+<p>Clip Snap isn't meant for anyone under 16, and we don't knowingly collect their data.</p>
+
+<h2>8. Changes</h2>
+<p>If we change how we handle data, we'll update this page and change the date at the top. For significant changes we'll also tell you by email or in the app.</p>
+{% endblock %}

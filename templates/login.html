@@ -164,6 +164,13 @@
   /* Honeypot: invisible to people, bots fill it in */
   .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
   .cf-turnstile { margin-bottom: 16px; min-height: 65px; }
+  .consent { font-size: .76rem; color: var(--muted); text-align: center; margin-top: 12px; line-height: 1.5; }
+  .consent a { color: var(--accent); text-decoration: none; }
+  body { flex-direction: column; }
+  .legal-links { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; font-size: .8rem; }
+  .legal-links a { color: var(--muted, #6b7280); text-decoration: none; }
+  .legal-links a:hover { text-decoration: underline; }
+
 </style>
 {% if turnstile_site_key %}
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -210,6 +217,7 @@
       <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="dark"></div>
       {% endif %}
       <button type="submit" class="btn">Sign up free</button>
+      <p class="consent">By signing up, you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
     </form>
 
     <div class="footer-link">
@@ -275,6 +283,10 @@
   {% endif %}
 
 </div>
+
+<nav class="legal-links">
+  <a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="mailto:{{ legal.email }}">Contact</a>
+</nav>
 
 </body>
 </html>

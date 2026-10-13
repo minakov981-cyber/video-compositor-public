@@ -183,6 +183,10 @@
     flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  .legal-links { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; font-size: .8rem; }
+  .legal-links a { color: var(--muted, #6b7280); text-decoration: none; }
+  .legal-links a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -233,6 +237,10 @@
     <p class="one-time">{{ free_generations }} free videos &nbsp;·&nbsp; No card needed &nbsp;·&nbsp; Pro $10/month, cancel anytime</p>
     <p class="login-link">Already have an account? <a href="/login">Sign in</a></p>
   </div>
+
+  <nav class="legal-links">
+  <a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a><a href="mailto:{{ legal.email }}">Contact</a>
+</nav>
 
 </div>
 

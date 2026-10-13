@@ -62,6 +62,14 @@ TURNSTILE_SITE_KEY   = os.environ.get("TURNSTILE_SITE_KEY", "")
 TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
+# Operator details shown on the legal pages (Terms, Privacy, Refunds)
+LEGAL = {
+    "owner":    os.environ.get("LEGAL_OWNER_NAME", "Kyrylo Pavlenko"),
+    "location": os.environ.get("LEGAL_LOCATION", "42-200 Częstochowa, Poland"),
+    "email":    os.environ.get("LEGAL_CONTACT_EMAIL", "support@clipsnap.net"),
+    "updated":  "13 October 2026",
+}
+
 # NOTE: цей семафор per-process. З N gunicorn workers реальний максимум одночасних
 # FFmpeg-рендерів = MAX_CONCURRENT_RENDERS × N. Якщо RENDERS_TOTAL має бути обмежений
 # на рівні всього сервісу (не на процес) — MAX_CONCURRENT_RENDERS в Railway env variables
@@ -217,8 +225,8 @@ def _start_session(email):
 
 
 @app.context_processor
-def _inject_turnstile():
-    return {"turnstile_site_key": TURNSTILE_SITE_KEY}
+def _inject_template_globals():
+    return {"turnstile_site_key": TURNSTILE_SITE_KEY, "legal": LEGAL}
 
 
 def _is_human() -> bool:
@@ -396,6 +404,21 @@ def set_password_page():
         return redirect(url_for("app_page"))
 
     return render_template("set_password.html")
+
+
+@app.route("/terms")
+def terms_page():
+    return render_template("terms.html", free_generations=FREE_GENERATIONS, free_variations=FREE_VARIATIONS)
+
+
+@app.route("/privacy")
+def privacy_page():
+    return render_template("privacy.html")
+
+
+@app.route("/refunds")
+def refunds_page():
+    return render_template("refunds.html")
 
 
 @app.route("/logout")

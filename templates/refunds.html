@@ -1,0 +1,23 @@
+{% extends "legal_base.html" %}
+{% block title %}Refund Policy{% endblock %}
+{% block heading %}Refund Policy{% endblock %}
+{% block content %}
+<h2>14-day money-back guarantee</h2>
+<p>If Pro isn't right for you, email <a href="mailto:{{ legal.email }}">{{ legal.email }}</a> within <strong>14 days of your first Pro payment</strong>
+and we'll refund it in full. No questions asked. Please write from the email address of your Clip Snap account.</p>
+
+<h2>Cancelling</h2>
+<p>You can cancel Pro at any time from your <a href="/account">Account</a> page ("Manage subscription") or at <a href="https://link.com" target="_blank" rel="noopener">link.com</a>.
+You keep Pro until the end of the month you've already paid for, and you won't be charged again.</p>
+
+<h2>Renewals</h2>
+<p>Monthly renewals after the first payment aren't refunded, including for unused days, because you can cancel at any time before the next renewal.
+We'll still refund a renewal if you were charged by mistake, for example after you had already cancelled, or if the law requires it.</p>
+
+<h2>How refunds are paid</h2>
+<p>Purchases are sold through Link (Stripe), so refunds go back to the original payment method through Link. They usually show up within 5–10 business days, depending on your bank.
+You can also ask for help with a payment at <a href="https://support.link.com" target="_blank" rel="noopener">Link support</a>.</p>
+
+<h2>Your legal rights</h2>
+<p>This policy doesn't limit any rights you have under consumer protection law where you live. In the EU, the 14-day guarantee above covers your right to withdraw from the purchase.</p>
+{% endblock %}

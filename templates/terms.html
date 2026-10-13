@@ -1,0 +1,72 @@
+{% extends "legal_base.html" %}
+{% block title %}Terms of Service{% endblock %}
+{% block heading %}Terms of Service{% endblock %}
+{% block content %}
+<h2>1. Who we are</h2>
+<p>Clip Snap (<a href="https://clipsnap.net">clipsnap.net</a>) is an online tool for assembling short vertical videos.
+It is run by <strong>{{ legal.owner }}</strong>, {{ legal.location }} ("we", "us").
+You can reach us at <a href="mailto:{{ legal.email }}">{{ legal.email }}</a>.</p>
+<p>By creating an account or using Clip Snap you agree to these Terms. If you don't agree, please don't use the service.</p>
+
+<h2>2. Your account</h2>
+<ul>
+  <li>You must be at least 16 years old to use Clip Snap.</li>
+  <li>Use a real email address you control. You are responsible for keeping your password safe and for everything done with your account.</li>
+  <li>One free account per person. Creating extra accounts to get more free usage isn't allowed.</li>
+</ul>
+
+<h2>3. Free plan</h2>
+<p>A free account includes {{ free_generations }} videos made with Create Video, each with up to {{ free_variations }} New Variations,
+and access to Tools for 7 days from signup. We may change what the free plan includes; changes don't affect anything you've already made.</p>
+
+<h2>4. Pro subscription</h2>
+<ul>
+  <li>Pro costs <strong>$10 per month</strong>, charged at the start of each billing month. Where sales tax or VAT applies, it is included in the price.
+    Your bank may show the amount in your local currency.</li>
+  <li>The subscription renews automatically every month until you cancel.</li>
+  <li><strong>Payments are processed by Stripe and sold through Link</strong>, which acts as the reseller (merchant of record) for the purchase.
+    The <a href="https://link.com/terms" target="_blank" rel="noopener">Link terms</a> also apply to the payment itself.</li>
+  <li>You can cancel at any time from your <a href="/account">Account</a> page ("Manage subscription") or at <a href="https://link.com" target="_blank" rel="noopener">link.com</a>.
+    Pro stays active until the end of the period you've paid for, and you won't be charged again.</li>
+  <li>If we change the price, we'll email you at least 30 days before it applies to your subscription. You can cancel before then.</li>
+  <li>Refunds are described in our <a href="/refunds">Refund Policy</a>.</li>
+</ul>
+
+<h2>5. Your content</h2>
+<ul>
+  <li>You keep all rights to the clips, music and text you upload and to the videos you create.</li>
+  <li>You give us permission to store and process your files only as needed to create your videos and run the service.</li>
+  <li>You must have the right to use everything you upload, including music. Don't upload content you don't own or haven't licensed.</li>
+  <li>Uploaded files and finished videos are <strong>deleted automatically, normally within 24 hours</strong>. Download your results; we don't keep backups of them.</li>
+</ul>
+
+<h2>6. Acceptable use</h2>
+<p>Don't use Clip Snap to:</p>
+<ul>
+  <li>create or share illegal content, including content that sexualises minors, promotes violence or terrorism, or harasses others;</li>
+  <li>infringe copyright, trademarks or other people's rights;</li>
+  <li>upload malware, attack, overload or probe the service, or get around its limits;</li>
+  <li>use bots or scripts to sign up or use the service in bulk.</li>
+</ul>
+<p>We may suspend or close accounts that break these rules. If you've paid for Pro and we close your account without a breach on your side, we'll refund the unused part.</p>
+
+<h2>7. The service</h2>
+<p>We work to keep Clip Snap running well, but we can't promise it will always be available or error-free. We may add, change or remove features.
+If we ever shut the service down, we'll give Pro subscribers at least 30 days' notice and refund any prepaid period we can't provide.</p>
+
+<h2>8. Liability</h2>
+<p>To the extent the law allows, Clip Snap is provided "as is", and our total liability to you is limited to the amount you paid us in the 12 months before the claim.
+We aren't liable for indirect losses such as lost profits or lost data. Nothing in these Terms limits liability that can't be limited by law,
+or your rights as a consumer under the law of the country where you live.</p>
+
+<h2>9. Ending your account</h2>
+<p>You can stop using Clip Snap at any time. To delete your account and its data, email <a href="mailto:{{ legal.email }}">{{ legal.email }}</a> from your account's address.
+Cancel any Pro subscription first so you aren't charged again.</p>
+
+<h2>10. Changes to these Terms</h2>
+<p>We may update these Terms. If a change matters, we'll tell you by email or in the app before it takes effect. Continuing to use Clip Snap after that means you accept the new Terms.</p>
+
+<h2>11. Law</h2>
+<p>These Terms are governed by Polish law. If you are a consumer, you also keep the protection of the mandatory laws of the country where you live,
+and you can bring a claim in the courts there.</p>
+{% endblock %}

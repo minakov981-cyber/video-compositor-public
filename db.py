@@ -1,3 +1,4 @@
+import hashlib
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -92,6 +93,20 @@ def init_db():
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS rate_events_key_time ON rate_events (key, created_at)")
+        # Deleted accounts leave only a hash of the email and the free-plan usage, so deleting and
+        # signing up again doesn't reset the free limits
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_users (
+                email_hash          TEXT PRIMARY KEY,
+                generations_used    INTEGER NOT NULL DEFAULT 0,
+                tools_trial_expires TIMESTAMPTZ,
+                deleted_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+
+def _email_hash(email: str) -> str:
+    return hashlib.sha256(email.strip().lower().encode()).hexdigest()
 
 
 def get_user(email: str):
@@ -151,12 +166,47 @@ def grant_trial(email: str, days: int):
 
 
 def create_user(email: str):
-    """Register a free account; no-op if the email already exists."""
+    """Register a free account; no-op if the email already exists.
+
+    An email that belonged to a deleted account gets its old free-plan usage back (and no welcome message).
+    """
     with _db() as cur:
         cur.execute(
             "INSERT INTO users (email, welcome_pending) VALUES (%s, TRUE) ON CONFLICT (email) DO NOTHING",
             (email,),
         )
+        if cur.rowcount:
+            cur.execute(
+                "UPDATE users SET generations_used = d.generations_used, "
+                "tools_trial_expires = d.tools_trial_expires, welcome_pending = FALSE "
+                "FROM deleted_users d WHERE d.email_hash = %s AND users.email = %s",
+                (_email_hash(email), email),
+            )
+
+
+def delete_user(email: str) -> list:
+    """Delete an account with its sessions and jobs; returns their ids so the caller can remove files."""
+    with _db() as cur:
+        cur.execute("SELECT generations_used, tools_trial_expires FROM users WHERE email = %s FOR UPDATE", (email,))
+        user = cur.fetchone()
+        if not user:
+            return []
+        cur.execute(
+            """
+            INSERT INTO deleted_users (email_hash, generations_used, tools_trial_expires) VALUES (%s, %s, %s)
+            ON CONFLICT (email_hash) DO UPDATE SET
+                generations_used    = GREATEST(deleted_users.generations_used, EXCLUDED.generations_used),
+                tools_trial_expires = LEAST(deleted_users.tools_trial_expires, EXCLUDED.tools_trial_expires),
+                deleted_at          = NOW()
+            """,
+            (_email_hash(email), user["generations_used"], user["tools_trial_expires"]),
+        )
+        cur.execute("DELETE FROM compose_sessions WHERE owner_email = %s RETURNING session_id", (email,))
+        ids = [r["session_id"] for r in cur.fetchall()]
+        cur.execute("DELETE FROM render_jobs WHERE owner_email = %s RETURNING job_id", (email,))
+        ids += [r["job_id"] for r in cur.fetchall()]
+        cur.execute("DELETE FROM users WHERE email = %s", (email,))
+        return ids
 
 
 def mark_welcome_seen(email: str):

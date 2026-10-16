@@ -26,7 +26,7 @@ from compositor import (MAX_VIDEO_SECONDS, TRANSITIONS, clip_speed, compose_vide
                         normalize_export_opts)
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
-                create_user, mark_welcome_seen, use_generation, refund_generation,
+                create_user, delete_user, mark_welcome_seen, use_generation, refund_generation,
                 set_stripe_customer, get_user_by_customer, update_subscription,
                 create_compose_session, get_compose_session,
                 update_compose_session_options, increment_variation_count,
@@ -70,6 +70,8 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2 GB
 app.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-key-change-in-prod")
+# The login cookie isn't sent with POSTs from other sites, so they can't trigger account actions
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
@@ -546,6 +548,61 @@ def billing_portal():
         print(f"[billing] portal failed for {request.user['email']}: {exc}")
         return redirect(url_for("account_page", error="Could not open billing settings. You can also manage the subscription at link.com."))
     return redirect(ps.url, code=303)
+
+
+@app.route("/account/delete", methods=["POST"])
+@login_required
+def account_delete():
+    """Delete the account and everything stored for it. Any running Pro subscription is cancelled first."""
+    user  = request.user
+    email = user["email"]
+    if request.form.get("confirm", "").strip().lower() != email:
+        return redirect(url_for("account_page", error="To delete your account, type your email address exactly."))
+
+    sub_id = user.get("stripe_subscription_id")
+    if sub_id and user.get("subscription_status") in ACTIVE_SUB_STATUSES:
+        try:
+            stripe.Subscription.cancel(sub_id)
+        except stripe.error.InvalidRequestError as exc:
+            # Already cancelled or gone on Stripe's side: nothing left to stop
+            print(f"[account] subscription {sub_id} not cancellable: {exc}")
+        except Exception as exc:
+            sentry_sdk.capture_exception(exc)
+            print(f"[account] could not cancel subscription {sub_id}: {exc}")
+            return redirect(url_for("account_page",
+                                    error="We couldn't cancel your subscription, so the account was not deleted. "
+                                          f"Please try again or email {LEGAL['email']}."))
+
+    ids = delete_user(email)
+    _delete_files(ids)
+    print(f"[account] deleted user {user['id']} ({len(ids)} session(s)/job(s))")
+
+    session.pop("email", None)
+    return render_template("account_deleted.html")
+
+
+def _delete_files(ids):
+    """Remove uploads, renders and temp folders that belong to these session/job ids."""
+    for object_id in ids:
+        if not object_id or not re.fullmatch(r"[A-Za-z0-9-]+", object_id):
+            continue
+        for path in (os.path.join(UPLOAD_DIR, object_id), os.path.join(UPLOAD_DIR, f"tool_{object_id}")):
+            shutil.rmtree(path, ignore_errors=True)
+        for directory in (OUTPUT_DIR, TEMP_DIR):
+            try:
+                names = os.listdir(directory)
+            except OSError:
+                continue
+            for name in names:
+                if name.startswith(object_id + "_"):
+                    path = os.path.join(directory, name)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                    else:
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
 
 
 def _sync_subscription(sub, email=None):

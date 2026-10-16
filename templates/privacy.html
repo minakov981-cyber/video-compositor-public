@@ -40,12 +40,14 @@ These are needed for the service to work, so no consent banner is required. Clou
 <ul>
   <li><strong>Uploaded files and finished videos:</strong> deleted automatically about {{ file_retention_hours }} hour{{ 's' if file_retention_hours != 1 }} after they are uploaded or created.</li>
   <li><strong>IP-based security records:</strong> deleted after 24 hours.</li>
-  <li><strong>Account data:</strong> kept while your account exists, and deleted when you ask us to delete the account.</li>
+  <li><strong>Account data:</strong> kept while your account exists. When you delete the account (on the Account page, or by asking us), we delete it straight away,
+    together with any files still stored. We keep only a one-way hash of your email with the number of free videos used and the end of the Tools trial,
+    so the free plan can't be restarted by signing up again (legitimate interest, Art. 6(1)(f)).</li>
   <li><strong>Payment records:</strong> kept by Stripe/Link for as long as tax and accounting laws require.</li>
 </ul>
 
 <h2>6. Your rights</h2>
-<p>You can ask us to access, correct, delete or export your data, to restrict how we use it, or object to processing based on legitimate interest.
+<p>You can delete your account and its data yourself on the <a href="/account">Account</a> page. You can also ask us to access, correct, delete or export your data, to restrict how we use it, or object to processing based on legitimate interest.
 Email <a href="mailto:{{ legal.email }}">{{ legal.email }}</a> from your account's address and we'll reply within 30 days.</p>
 <p>You also have the right to complain to a data protection authority. In Poland this is the President of the Personal Data Protection Office
 (<a href="https://uodo.gov.pl" target="_blank" rel="noopener">UODO</a>), or you can contact the authority in your own EU country.</p>

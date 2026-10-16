@@ -148,6 +148,12 @@
     transition: color .2s;
   }
   #clips-duration.over-limit { color: #ef4444; }
+  .full-length-toggle {
+    display: inline-flex; align-items: center; gap: 7px; margin-bottom: 12px; cursor: pointer;
+    font-size: .8rem; color: var(--text-dim); font-family: var(--mono);
+  }
+  .full-length-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+  #duration-range-field.is-off { opacity: .45; }
   .clip-row {
     display: flex; align-items: center; gap: 8px;
     background: var(--bg-elevated);
@@ -840,7 +846,11 @@
           </button>
         </div>
         <div id="duration-auto-panel">
-          <div class="field" style="margin-bottom:0">
+          <label class="full-length-toggle">
+            <input type="checkbox" id="use-full-length" onchange="toggleFullLength()">
+            Use original clip length
+          </label>
+          <div class="field" id="duration-range-field" style="margin-bottom:0">
             <label>Duration per clip (seconds)</label>
             <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5" oninput="updateClipsDuration()">
             <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
@@ -1562,6 +1572,18 @@
     return active ? active.dataset.value : 'auto';
   }
 
+  // Clips play at their full length: Manual trim mode, or Auto with "Use original clip length"
+  function useFullLength() {
+    return getSelectedDurationMode() === 'manual' || document.getElementById('use-full-length').checked;
+  }
+
+  function toggleFullLength() {
+    const on = document.getElementById('use-full-length').checked;
+    document.getElementById('duration-range').disabled = on;
+    document.getElementById('duration-range-field').classList.toggle('is-off', on);
+    updateClipsDuration();
+  }
+
   // ── Trim frame preview ───────────────────────────────────────────────────
   async function showFramePreview(clipId, side, t) {
     const seekId = ++previewSeekId;
@@ -1917,11 +1939,10 @@
     estimatedMaxSec = 0;
     if (!n) { el.textContent = ''; el.classList.remove('over-limit'); return; }
 
-    const mode = getSelectedDurationMode();
     let maxSec = 0;
     const cut  = transitionOverlap(n);
 
-    if (mode === 'auto') {
+    if (!useFullLength()) {
       const raw   = (document.getElementById('duration-range').value || '2').trim();
       const parts = raw.split('-').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
       if (parts.length >= 2) {
@@ -2276,7 +2297,7 @@
 
     fd.append('audio',          audioFile);
     fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
-    fd.append('use_original_duration', getSelectedDurationMode() === 'manual');
+    fd.append('use_original_duration', useFullLength());
     fd.append('music_start',         document.getElementById('music-start').value);
     fd.append('music_end',           document.getElementById('music-end').value.trim());
     fd.append('music_fade_out',      document.getElementById('music-fade-out').checked);
@@ -2328,7 +2349,7 @@
     const payload  = {
       session_id: sessionId,
       text:       variText || document.getElementById('overlay-text').value,
-      use_original_duration: getSelectedDurationMode() === 'manual',
+      use_original_duration: useFullLength(),
       font:       document.getElementById('font-select').value,
       font_size:  parseInt(document.getElementById('font-size').value, 10),
       position:    document.getElementById('text-position').value,

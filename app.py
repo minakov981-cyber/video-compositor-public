@@ -1046,10 +1046,48 @@ def _run_composition(session_id, text_opts, variation, job_id, refund=None):
         set_render_job_done(job_id, resp)
     except Exception as exc:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        set_render_job_error(job_id, str(exc))
-        _report_job_error(exc, job_id)
+        message, report = _user_error(exc, "video")
+        set_render_job_error(job_id, message, None if isinstance(exc, ValueError) else str(exc))
+        if report:
+            _report_job_error(exc, job_id)
         if refund:
             refund()  # a failed render shouldn't use up the free quota
+
+
+# What a render/tool failure means for the user, by what FFmpeg printed (matched lower-case).
+# report=False: the user's file is the problem, not our code, so Sentry doesn't need it.
+_FFMPEG_ERRORS = (
+    (("no space left on device",),
+     "The server is short on space right now. Please try again in a few minutes.", True),
+    (("cannot allocate memory", "out of memory"),
+     "This video needs more memory than the server has free. Try fewer or shorter clips, "
+     "or a lower export quality.", True),
+    (("no such file or directory",),
+     f"Some of your files are no longer on the server (uploads are kept for {FILE_RETENTION_HOURS} hours). "
+     "Please upload them again.", False),
+    (("invalid data found when processing input", "moov atom not found", "could not find codec parameters",
+      "error while decoding", "invalid nal unit", "decoding error", "unknown format",
+      "does not contain any stream", "matches no streams"),
+     "We couldn't read {clip}. It may be damaged or in a format we don't support. "
+     "Try saving or exporting it again as MP4, then upload it again.", False),
+)
+
+
+def _user_error(exc, what):
+    """(message for the user, send to Sentry?) for a failed render ("video") or tool ("file")."""
+    if isinstance(exc, ValueError):
+        return str(exc), False  # written for users already (5-minute limit, no audio track, ...)
+    text = str(exc)
+    m    = re.search(r"failed on clip (.+?):\n", text)
+    clip = f'the clip "{m.group(1)}"' if m else ("one of your clips" if what == "video" else "this file")
+    low  = text.lower()
+    for needles, message, report in _FFMPEG_ERRORS:
+        if any(n in low for n in needles):
+            return message.format(clip=clip), report
+    return (f"Something went wrong while making your {what}. We've been notified and will look into it. "
+            "Please try again, or try with different clips." if what == "video" else
+            "Something went wrong while processing your file. We've been notified and will look into it. "
+            "Please try again, or try another file."), True
 
 
 def _report_job_error(exc, job_id, **tags):
@@ -1128,8 +1166,10 @@ def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name):
             **extra,
         })
     except Exception as exc:
-        set_render_job_error(job_id, str(exc))
-        _report_job_error(exc, job_id, tool=tool)
+        message, report = _user_error(exc, "file")
+        set_render_job_error(job_id, message, None if isinstance(exc, ValueError) else str(exc))
+        if report:
+            _report_job_error(exc, job_id, tool=tool)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 

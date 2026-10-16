@@ -92,6 +92,8 @@ def init_db():
         cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0")
         cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ")
         cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ")
+        # error is what the user sees; error_detail keeps FFmpeg's own output for the admin queue page
+        cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS error_detail TEXT")
         cur.execute("CREATE INDEX IF NOT EXISTS render_jobs_queue ON render_jobs (status, created_at)")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS rate_events (
@@ -511,7 +513,7 @@ def render_queue_overview(recent_errors: int = 20) -> dict:
         active = [dict(r) for r in cur.fetchall()]
         cur.execute(
             "SELECT job_id, owner_email, payload->>'kind' AS kind, payload->>'tool' AS tool, "
-            "(payload->>'variation')::boolean AS variation, attempts, created_at, error "
+            "(payload->>'variation')::boolean AS variation, attempts, created_at, error, error_detail "
             "FROM render_jobs WHERE status = 'error' ORDER BY created_at DESC LIMIT %s",
             (recent_errors,),
         )
@@ -545,11 +547,11 @@ def set_render_job_done(job_id: str, result_dict: dict):
         )
 
 
-def set_render_job_error(job_id: str, error_str: str):
+def set_render_job_error(job_id: str, error_str: str, detail: str = None):
     with _db() as cur:
         cur.execute(
-            "UPDATE render_jobs SET status = 'error', error = %s WHERE job_id = %s",
-            (error_str, job_id),
+            "UPDATE render_jobs SET status = 'error', error = %s, error_detail = %s WHERE job_id = %s",
+            (error_str, detail, job_id),
         )
 
 

@@ -31,6 +31,9 @@
   .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: .75rem; white-space: nowrap; }
   .pill.processing { background: rgba(111,207,111,.12); color: var(--ok); }
   .pill.queued { background: rgba(224,184,79,.12); color: var(--warn); }
+  details summary { cursor: pointer; color: var(--muted); font-size: .78rem; margin-top: 6px; }
+  details pre { white-space: pre-wrap; word-break: break-word; color: var(--muted); font-size: .74rem;
+                margin-top: 6px; max-height: 260px; overflow: auto; }
   .empty { color: var(--muted); padding: 16px; font-size: .88rem; }
 </style>
 </head>
@@ -81,7 +84,9 @@
         <td>{{ what(j) }}</td>
         <td>{{ j.owner_email or '—' }}</td>
         <td>{{ j.attempts }}</td>
-        <td class="err">{{ (j.error or '')[:300] }}</td>
+        <td class="err">{{ (j.error or '')[:300] }}
+          {% if j.error_detail %}<details><summary>FFmpeg output</summary><pre>{{ j.error_detail[-1500:] }}</pre></details>{% endif %}
+        </td>
       </tr>
       {% endfor %}
     </table>

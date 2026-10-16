@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -64,6 +65,7 @@ if _sentry_dsn:
     except Exception as exc:
         print(f"[sentry] disabled, SENTRY_DSN is not a valid DSN: {exc}")
 
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 app = Flask(__name__)
 # Railway terminates HTTPS at its proxy; trust X-Forwarded-* so external URLs (Stripe, magic links) are https
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -430,6 +432,12 @@ def set_password_page():
         return redirect(url_for("app_page"))
 
     return render_template("set_password.html")
+
+
+@app.route("/favicon.ico")
+def favicon():
+    # Browsers ask for /favicon.ico on every site, with or without a <link rel="icon">
+    return send_from_directory("static", "favicon.ico", mimetype="image/vnd.microsoft.icon", max_age=86400)
 
 
 @app.route("/terms")

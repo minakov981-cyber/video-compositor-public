@@ -88,6 +88,8 @@
   @media (min-width: 768px) {
     .layout { grid-template-columns: 1fr 1fr; }
   }
+  /* Grid columns default to their content's width; let long file names shrink (ellipsis) instead */
+  .layout > *, .tools-grid > * { min-width: 0; }
 
   .card {
     background: var(--bg-card);
@@ -164,7 +166,7 @@
   .badge-num   { background: rgba(148,163,184,.12); color: #94a3b8; font-variant-numeric: tabular-nums; }
   .badge-mid   { background: rgba(107,114,128,.15); color: var(--text-dim); }
   .clip-name {
-    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     cursor: text; transition: color .15s;
   }
   .clip-name:hover { color: var(--accent); }
@@ -653,7 +655,7 @@
     border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; background: var(--bg-card);
   }
   .tool-file-name {
-    font-size: .78rem; font-family: var(--mono); color: var(--text-dim);
+    min-width: 0; font-size: .78rem; font-family: var(--mono); color: var(--text-dim);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .tool-file.has-file .tool-file-name { color: var(--text); }

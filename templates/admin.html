@@ -129,6 +129,8 @@
   <button id="btn" onclick="grant()">Grant access & send email</button>
   <div class="msg" id="msg"></div>
 
+  <a href="/admin/queue" style="display:block;margin-top:24px;text-align:center;color:var(--accent-h);font-size:.9rem;text-decoration:none">Render queue →</a>
+
   <script>
     async function grant() {
       const email = document.getElementById('email').value.trim();

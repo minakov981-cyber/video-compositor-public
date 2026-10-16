@@ -3,7 +3,6 @@ import os
 import re
 import secrets
 import shutil
-import threading
 import time
 import urllib.parse
 import urllib.request
@@ -33,7 +32,7 @@ from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 use_session_variation, refund_session_variation, get_owner,
                 hit_rate_limit, purge_rate_events,
                 list_all_session_ids_with_clip_paths, delete_compose_session,
-                create_render_job, get_render_job,
+                enqueue_render_job, get_render_job, render_queue_position, render_queue_overview,
                 set_render_job_done, set_render_job_error)
 
 DATA_DIR   = os.environ.get("DATA_DIR", ".")
@@ -102,21 +101,16 @@ LEGAL = {
     "updated":  "16 October 2026",
 }
 
-# NOTE: цей семафор per-process. З N gunicorn workers реальний максимум одночасних
-# FFmpeg-рендерів = MAX_CONCURRENT_RENDERS × N. Якщо RENDERS_TOTAL має бути обмежений
-# на рівні всього сервісу (не на процес) — MAX_CONCURRENT_RENDERS в Railway env variables
-# має бути зменшений відповідно (наприклад, якщо хочемо максимум 2 рендери на весь сервіс
-# при 3 workers — виставити MAX_CONCURRENT_RENDERS=1, що дасть 1×3=3, найближче зверху;
-# точний глобальний ліміт вимагав би distributed lock через Postgres advisory lock —
-# поза скоупом зараз).
+# Renders and tools run in worker.py (started next to gunicorn by start.py), one queue for the whole service.
+# This is how many FFmpeg jobs it runs at the same time.
 try:
-    MAX_CONCURRENT_RENDERS = int(os.environ.get("MAX_CONCURRENT_RENDERS", "2"))
+    MAX_CONCURRENT_RENDERS = max(1, int(os.environ.get("MAX_CONCURRENT_RENDERS", "2")))
 except ValueError:
     MAX_CONCURRENT_RENDERS = 2
-_render_semaphore = threading.Semaphore(MAX_CONCURRENT_RENDERS)
 
 try:
-    init_db()
+    if os.environ.get("CLIPSNAP_JOB_PROCESS") != "1":  # one render's process (worker.py --job) skips the schema check
+        init_db()
 except Exception as exc:
     sentry_sdk.capture_exception(exc)
     print(f"[db] init failed (will retry on first request): {exc}")
@@ -143,9 +137,7 @@ def _cleanup_loop():
         interval = 15
     max_age = FILE_RETENTION_HOURS
 
-    # NOTE: gunicorn is configured with --workers 1; with multiple workers
-    # this thread would run in each worker — move cleanup to a separate process
-    # or protect with an advisory lock in Postgres if workers > 1.
+    # Runs once per service, in worker.py (not in each gunicorn worker)
     while True:
         try:
             cleanup_old_files(UPLOAD_DIR, OUTPUT_DIR, TEMP_DIR, max_age)
@@ -156,9 +148,6 @@ def _cleanup_loop():
             print(f"[cleanup] error: {exc}")
         time.sleep(interval * 60)
 
-
-_t = threading.Thread(target=_cleanup_loop, daemon=True)
-_t.start()
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -698,6 +687,31 @@ def admin_sentry_test():
     raise RuntimeError("Sentry test error from /admin/sentry-test")
 
 
+@app.route("/admin/queue")
+def admin_queue():
+    """Render queue at a glance: what's waiting, what's rendering, recent failures (admin only)."""
+    if session.get("admin") is not True:
+        return redirect(url_for("admin_page"))
+    q   = render_queue_overview()
+    now = datetime.now(timezone.utc)
+
+    def ago(dt):
+        if not dt:
+            return "—"
+        sec = int((now - _aware(dt)).total_seconds())
+        return f"{sec}s" if sec < 90 else f"{sec // 60}m" if sec < 5400 else f"{sec // 3600}h {sec % 3600 // 60}m"
+
+    def what(job):
+        if job["kind"] == "tool":
+            return f"Tool: {job['tool']}"
+        if job["kind"] == "compose":
+            return "Variation" if job["variation"] else "Create Video"
+        return "Old job"
+
+    return render_template("admin_queue.html", q=q, ago=ago, what=what,
+                           max_renders=MAX_CONCURRENT_RENDERS, now=now)
+
+
 @app.route("/admin/grant-trial", methods=["POST"])
 def admin_grant_trial():
     secret = os.environ.get("ADMIN_SECRET", "")
@@ -923,9 +937,8 @@ def compose():
     )
 
     job_id = uuid.uuid4().hex[:10]
-    create_render_job(job_id, email)
-    threading.Thread(target=_render_job, args=(session_id, text_opts, False, job_id),
-                     kwargs={"refund": lambda: refund_generation(email)}, daemon=True).start()
+    enqueue_render_job(job_id, email, {"kind": "compose", "session_id": session_id, "text_opts": text_opts,
+                                       "variation": False, "refund": "generation"})
     return jsonify({"success": True, "session_id": session_id, "job_id": job_id})
 
 
@@ -976,9 +989,9 @@ def variation():
     )
 
     job_id = uuid.uuid4().hex[:10]
-    create_render_job(job_id, request.user["email"])
-    threading.Thread(target=_render_job, args=(session_id, text_opts, True, job_id),
-                     kwargs={"refund": lambda: refund_session_variation(session_id)}, daemon=True).start()
+    enqueue_render_job(job_id, request.user["email"], {"kind": "compose", "session_id": session_id,
+                                                       "text_opts": text_opts, "variation": True,
+                                                       "refund": "variation"})
     return jsonify({"success": True, "job_id": job_id})
 
 
@@ -1050,9 +1063,26 @@ def _report_job_error(exc, job_id, **tags):
         sentry_sdk.capture_exception(exc)
 
 
-def _render_job(session_id, text_opts, variation, job_id, refund=None):
-    with _render_semaphore:
-        _run_composition(session_id, text_opts, variation, job_id, refund)
+def run_job(job):
+    """Run one claimed queue job (called by worker.py)."""
+    p = job["payload"]
+    if p["kind"] == "compose":
+        _run_composition(p["session_id"], p["text_opts"], p["variation"], job["job_id"],
+                         lambda: refund_job(job))
+    elif p["kind"] == "tool":
+        _tool_job(job["job_id"], p["tool"], p["option"], p["src"], p["work_dir"],
+                  p["output_file"], p["download_name"])
+    else:
+        set_render_job_error(job["job_id"], f"Unknown job kind {p['kind']!r}")
+
+
+def refund_job(job):
+    """Give back the free-plan render a failed job used up."""
+    p = job["payload"]
+    if p.get("refund") == "generation" and job.get("owner_email"):
+        refund_generation(job["owner_email"])
+    elif p.get("refund") == "variation":
+        refund_session_variation(p["session_id"])
 
 
 @app.route("/tools/<tool>", methods=["POST"])
@@ -1078,33 +1108,30 @@ def tools_run(tool):
     download_name = output_name(tool, option, original)
     output_file   = f"{job_id}_{download_name}"
 
-    create_render_job(job_id, request.user["email"])
-    threading.Thread(
-        target=_tool_job,
-        args=(job_id, tool, option, src, work_dir, output_file, download_name),
-        daemon=True,
-    ).start()
+    enqueue_render_job(job_id, request.user["email"], {
+        "kind": "tool", "tool": tool, "option": option, "src": src, "work_dir": work_dir,
+        "output_file": output_file, "download_name": download_name,
+    })
     return jsonify({"success": True, "job_id": job_id})
 
 
 def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name):
-    with _render_semaphore:
-        try:
-            size_in = os.path.getsize(src)
-            extra = run_tool(tool, option, src, os.path.join(OUTPUT_DIR, output_file))
-            set_render_job_done(job_id, {
-                "success":       True,
-                "output":        output_file,
-                "download_name": download_name,
-                "size_in":       size_in,
-                "size_out":      os.path.getsize(os.path.join(OUTPUT_DIR, output_file)),
-                **extra,
-            })
-        except Exception as exc:
-            set_render_job_error(job_id, str(exc))
-            _report_job_error(exc, job_id, tool=tool)
-        finally:
-            shutil.rmtree(work_dir, ignore_errors=True)
+    try:
+        size_in = os.path.getsize(src)
+        extra = run_tool(tool, option, src, os.path.join(OUTPUT_DIR, output_file))
+        set_render_job_done(job_id, {
+            "success":       True,
+            "output":        output_file,
+            "download_name": download_name,
+            "size_in":       size_in,
+            "size_out":      os.path.getsize(os.path.join(OUTPUT_DIR, output_file)),
+            **extra,
+        })
+    except Exception as exc:
+        set_render_job_error(job_id, str(exc))
+        _report_job_error(exc, job_id, tool=tool)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 @app.route("/status/<job_id>")
@@ -1117,6 +1144,8 @@ def job_status(job_id):
         return jsonify({"status": "done", "result": job["result"]})
     if job["status"] == "error":
         return jsonify({"status": "error", "error": job["error"]})
+    if job["status"] == "queued":
+        return jsonify({"status": "processing", "queued": True, "ahead": render_queue_position(job_id)})
     return jsonify({"status": "processing"})
 
 

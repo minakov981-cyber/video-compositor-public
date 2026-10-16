@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="refresh" content="10">
+<title>Queue — ClipSnap admin</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --bg: #0d0d0f; --surface: #16171c; --border: #2a2b35; --accent: #7080ff; --text: #e2e4f0;
+          --muted: #6b7280; --ok: #6fcf6f; --warn: #e0b84f; --err: #cf6f6f; }
+  body { background: var(--bg); color: var(--text); padding: 32px 16px 64px;
+         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  h1 { font-size: 1.4rem; font-weight: 600; }
+  h2 { font-size: 1rem; font-weight: 600; margin: 28px 0 10px; }
+  a { color: var(--accent); text-decoration: none; }
+  .muted { color: var(--muted); font-size: .82rem; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .stat b { display: block; font-size: 1.6rem; font-weight: 600; }
+  .stat span { color: var(--muted); font-size: .8rem; }
+  .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.mono { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; }
+  td.err { color: var(--err); min-width: 260px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: .75rem; white-space: nowrap; }
+  .pill.processing { background: rgba(111,207,111,.12); color: var(--ok); }
+  .pill.queued { background: rgba(224,184,79,.12); color: var(--warn); }
+  .empty { color: var(--muted); padding: 16px; font-size: .88rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Render queue</h1>
+    <span class="muted">Refreshes every 10 s · {{ now.strftime('%H:%M:%S') }} UTC · <a href="/admin">← Admin</a></span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>{{ q.counts.processing }} / {{ max_renders }}</b><span>rendering now</span></div>
+    <div class="stat"><b>{{ q.counts.queued }}</b><span>waiting in queue</span></div>
+    <div class="stat"><b>{{ q.counts.done_24h }}</b><span>finished, last 24 h</span></div>
+    <div class="stat"><b>{{ q.counts.errors_24h }}</b><span>failed, last 24 h</span></div>
+  </div>
+
+  <h2>Now</h2>
+  <div class="table-scroll">
+  {% if q.active %}
+    <table>
+      <tr><th>Status</th><th>What</th><th>User</th><th>Waiting</th><th>Rendering</th><th>Attempt</th><th>Job</th></tr>
+      {% for j in q.active %}
+      <tr>
+        <td><span class="pill {{ j.status }}">{{ j.status }}</span></td>
+        <td>{{ what(j) }}</td>
+        <td>{{ j.owner_email or '—' }}</td>
+        <td>{{ ago(j.created_at) }}</td>
+        <td>{{ ago(j.started_at) if j.status == 'processing' else '—' }}</td>
+        <td>{{ j.attempts }}</td>
+        <td class="mono">{{ j.job_id }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">Nothing waiting or rendering.</div>
+  {% endif %}
+  </div>
+
+  <h2>Latest failures</h2>
+  <div class="table-scroll">
+  {% if q.errors %}
+    <table>
+      <tr><th>When</th><th>What</th><th>User</th><th>Attempts</th><th>Error</th></tr>
+      {% for j in q.errors %}
+      <tr>
+        <td>{{ ago(j.created_at) }} ago</td>
+        <td>{{ what(j) }}</td>
+        <td>{{ j.owner_email or '—' }}</td>
+        <td>{{ j.attempts }}</td>
+        <td class="err">{{ (j.error or '')[:300] }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">No failures.</div>
+  {% endif %}
+  </div>
+</div>
+</body>
+</html>

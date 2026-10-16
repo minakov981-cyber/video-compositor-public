@@ -2330,7 +2330,7 @@
       }
       sessionId = data.session_id;
       setLoading('create-btn', true, 'Processing…');
-      await pollStatus(data.job_id, 'create-error');
+      await pollStatus(data.job_id, 'create-error', 'create-btn', 'Processing…');
       loadPlan();
     } catch (e) {
       showError('create-error', e.message);
@@ -2378,7 +2378,7 @@
         if (data.upgrade) showLimitModal('variations');
         return;
       }
-      await pollStatus(data.job_id, 'variation-error');
+      await pollStatus(data.job_id, 'variation-error', 'variation-btn', 'Rendering…');
     } catch (e) {
       showError('variation-error', e.message);
     } finally {
@@ -2426,10 +2426,20 @@
   }
 
   // Resolves with the job result, rejects with the job's error message
-  async function pollJob(jobId) {
-    const MAX_ATTEMPTS = 360; // 360 × 2.5s = 15 minutes; a 5-minute video can take several minutes to render
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+  // btnId/label: while the job waits in the render queue, the button says so instead of the label.
+  // The server stops a render after 20 minutes and reports why, so the browser only gives up
+  // if it hears nothing useful for much longer (server unreachable). Time in the queue doesn't count.
+  async function pollJob(jobId, btnId, label) {
+    const RENDER_LIMIT_MS = 25 * 60 * 1000;
+    const TOTAL_LIMIT_MS  = 90 * 60 * 1000;
+    const startedAt = Date.now();
+    let renderingSince = null;
+    let shown = label;
+    for (;;) {
       await new Promise(r => setTimeout(r, 2500));
+      if (Date.now() - startedAt > TOTAL_LIMIT_MS) {
+        throw new Error('The server is very busy right now. Please try again later.');
+      }
       let data;
       try {
         const res = await fetch(`/status/${jobId}`);
@@ -2440,13 +2450,20 @@
       }
       if (data.status === 'done')  return data.result;
       if (data.status === 'error') throw new Error(data.error || 'Render failed.');
+      renderingSince = data.queued ? null : (renderingSince ?? Date.now());
+      if (renderingSince && Date.now() - renderingSince > RENDER_LIMIT_MS) {
+        throw new Error('Rendering is taking too long. Please try again.');
+      }
+      if (btnId) {
+        const next = !data.queued ? label : data.ahead ? `In queue · ${data.ahead} ahead…` : 'Starting…';
+        if (next !== shown) setLoading(btnId, true, (shown = next));
+      }
     }
-    throw new Error('Render timed out after 15 minutes. Please try again.');
   }
 
-  async function pollStatus(jobId, errorId) {
+  async function pollStatus(jobId, errorId, btnId, label) {
     try {
-      const r = await pollJob(jobId);
+      const r = await pollJob(jobId, btnId, label);
       showOutput(r.output, r.total_duration, r.clip_order, r.warning, r.has_audio);
     } catch (e) {
       showError(errorId, e.message);
@@ -2566,7 +2583,7 @@
         return showError(errId, data.error, data.upgrade);
       }
       setLoading(`tool-btn-${id}`, true, 'Processing…');
-      const r = await pollJob(data.job_id);
+      const r = await pollJob(data.job_id, `tool-btn-${id}`, 'Processing…');
       showToolResult(id, r);
     } catch (e) {
       showError(errId, e.message);

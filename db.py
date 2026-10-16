@@ -86,6 +86,13 @@ def init_db():
             )
         """)
         cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS owner_email TEXT")
+        # Render queue (worker.py): jobs wait as 'queued' with everything needed to run them in payload,
+        # so a job interrupted by a deploy or crash can be picked up again by the next worker
+        cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS payload JSONB")
+        cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ")
+        cur.execute("ALTER TABLE render_jobs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ")
+        cur.execute("CREATE INDEX IF NOT EXISTS render_jobs_queue ON render_jobs (status, created_at)")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS rate_events (
                 key        TEXT NOT NULL,
@@ -405,12 +412,122 @@ def delete_compose_session(session_id: str):
 
 # ── Render jobs ───────────────────────────────────────────────────────────────
 
-def create_render_job(job_id: str, owner_email: str = None):
+def enqueue_render_job(job_id: str, owner_email: str, payload: dict):
+    """Add a job to the render queue; worker.py picks it up."""
     with _db() as cur:
         cur.execute(
-            "INSERT INTO render_jobs (job_id, owner_email) VALUES (%s, %s)",
-            (job_id, owner_email),
+            "INSERT INTO render_jobs (job_id, owner_email, status, payload) VALUES (%s, %s, 'queued', %s)",
+            (job_id, owner_email, Json(payload)),
         )
+
+
+def claim_render_job():
+    """Take the oldest queued job and mark it processing; None if the queue is empty."""
+    with _db() as cur:
+        cur.execute(
+            """
+            UPDATE render_jobs SET status = 'processing', attempts = attempts + 1,
+                                   heartbeat_at = NOW(), started_at = NOW()
+            WHERE job_id = (
+                SELECT job_id FROM render_jobs WHERE status = 'queued'
+                ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
+            )
+            RETURNING job_id, owner_email, payload, attempts
+            """
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def heartbeat_render_jobs(job_ids: list):
+    if not job_ids:
+        return
+    with _db() as cur:
+        cur.execute(
+            "UPDATE render_jobs SET heartbeat_at = NOW() WHERE job_id = ANY(%s) AND status = 'processing'",
+            (list(job_ids),),
+        )
+
+
+def requeue_render_jobs(job_ids: list, count_attempt: bool = False):
+    """Put processing jobs back in the queue. A deploy/shutdown doesn't count as an attempt, a crash does."""
+    if not job_ids:
+        return
+    with _db() as cur:
+        cur.execute(
+            "UPDATE render_jobs SET status = 'queued', heartbeat_at = NULL, "
+            "attempts = CASE WHEN %s THEN attempts ELSE GREATEST(attempts - 1, 0) END "
+            "WHERE job_id = ANY(%s) AND status = 'processing'",
+            (count_attempt, list(job_ids)),
+        )
+
+
+def fail_render_job(job_id: str, error_str: str) -> bool:
+    """Mark a job that is still processing as failed; False if it already finished on its own."""
+    with _db() as cur:
+        cur.execute(
+            "UPDATE render_jobs SET status = 'error', error = %s WHERE job_id = %s AND status = 'processing'",
+            (error_str, job_id),
+        )
+        return cur.rowcount > 0
+
+
+def requeue_stale_render_jobs(stale_seconds: int) -> int:
+    """Re-queue jobs whose worker died without saying so (no heartbeat). Jobs from before the queue
+    existed have no payload and can't be re-run, so they fail instead."""
+    with _db() as cur:
+        cur.execute(
+            "UPDATE render_jobs SET status = 'error', error = %s "
+            "WHERE status = 'processing' AND payload IS NULL",
+            ("The server restarted while this was rendering. Please try again.",),
+        )
+        cur.execute(
+            "UPDATE render_jobs SET status = 'queued', heartbeat_at = NULL "
+            "WHERE status = 'processing' AND (heartbeat_at IS NULL OR heartbeat_at < NOW() - make_interval(secs => %s))",
+            (stale_seconds,),
+        )
+        return cur.rowcount
+
+
+def render_queue_overview(recent_errors: int = 20) -> dict:
+    """What the admin queue page shows: counts, jobs waiting/running now, latest failures."""
+    with _db() as cur:
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'queued')                                        AS queued,
+                COUNT(*) FILTER (WHERE status = 'processing')                                    AS processing,
+                COUNT(*) FILTER (WHERE status = 'done'  AND created_at > NOW() - INTERVAL '24 hours') AS done_24h,
+                COUNT(*) FILTER (WHERE status = 'error' AND created_at > NOW() - INTERVAL '24 hours') AS errors_24h
+            FROM render_jobs
+            """
+        )
+        counts = dict(cur.fetchone())
+        cur.execute(
+            "SELECT job_id, status, owner_email, payload->>'kind' AS kind, payload->>'tool' AS tool, "
+            "(payload->>'variation')::boolean AS variation, attempts, created_at, started_at, heartbeat_at "
+            "FROM render_jobs WHERE status IN ('queued', 'processing') ORDER BY created_at"
+        )
+        active = [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            "SELECT job_id, owner_email, payload->>'kind' AS kind, payload->>'tool' AS tool, "
+            "(payload->>'variation')::boolean AS variation, attempts, created_at, error "
+            "FROM render_jobs WHERE status = 'error' ORDER BY created_at DESC LIMIT %s",
+            (recent_errors,),
+        )
+        errors = [dict(r) for r in cur.fetchall()]
+        return {"counts": counts, "active": active, "errors": errors}
+
+
+def render_queue_position(job_id: str) -> int:
+    """How many queued jobs are ahead of this one."""
+    with _db() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM render_jobs WHERE status = 'queued' "
+            "AND created_at < (SELECT created_at FROM render_jobs WHERE job_id = %s)",
+            (job_id,),
+        )
+        return cur.fetchone()["n"]
 
 
 def get_render_job(job_id: str):

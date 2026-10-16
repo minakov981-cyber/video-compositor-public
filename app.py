@@ -22,7 +22,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from cleanup import cleanup_old_files
 from tools import TOOL_OPTIONS, output_name, run_tool
-from compositor import TRANSITIONS, clip_speed, compose_video, extract_audio_mp3, normalize_export_opts
+from compositor import (MAX_VIDEO_SECONDS, TRANSITIONS, clip_speed, compose_video, extract_audio_mp3,
+                        normalize_export_opts)
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
                 create_user, mark_welcome_seen, use_generation, refund_generation,
@@ -84,12 +85,19 @@ TURNSTILE_SITE_KEY   = os.environ.get("TURNSTILE_SITE_KEY", "")
 TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
+# Uploads and rendered videos are deleted this many hours after they were written (cleanup loop,
+# Terms, Privacy and the editor's download hint all use it). Keep it small: the Railway volume is 5 GB.
+try:
+    FILE_RETENTION_HOURS = max(1, int(os.environ.get("CLEANUP_MAX_AGE_HOURS", "2")))
+except ValueError:
+    FILE_RETENTION_HOURS = 2
+
 # Operator details shown on the legal pages (Terms, Privacy, Refunds)
 LEGAL = {
     "owner":    os.environ.get("LEGAL_OWNER_NAME", "Kyrylo Pavlenko"),
     "location": os.environ.get("LEGAL_LOCATION", "42-200 Częstochowa, Poland"),
     "email":    os.environ.get("LEGAL_CONTACT_EMAIL", "support@clipsnap.net"),
-    "updated":  "13 October 2026",
+    "updated":  "16 October 2026",
 }
 
 # NOTE: цей семафор per-process. З N gunicorn workers реальний максимум одночасних
@@ -128,13 +136,10 @@ def _purge_orphaned_sessions():
 
 def _cleanup_loop():
     try:
-        interval = int(os.environ.get("CLEANUP_INTERVAL_MINUTES", "60"))
+        interval = int(os.environ.get("CLEANUP_INTERVAL_MINUTES", "15"))
     except ValueError:
-        interval = 60
-    try:
-        max_age = int(os.environ.get("CLEANUP_MAX_AGE_HOURS", "24"))
-    except ValueError:
-        max_age = 24
+        interval = 15
+    max_age = FILE_RETENTION_HOURS
 
     # NOTE: gunicorn is configured with --workers 1; with multiple workers
     # this thread would run in each worker — move cleanup to a separate process
@@ -255,7 +260,8 @@ def _start_session(email):
 
 @app.context_processor
 def _inject_template_globals():
-    return {"turnstile_site_key": TURNSTILE_SITE_KEY, "legal": LEGAL}
+    return {"turnstile_site_key": TURNSTILE_SITE_KEY, "legal": LEGAL,
+            "file_retention_hours": FILE_RETENTION_HOURS, "max_video_seconds": MAX_VIDEO_SECONDS}
 
 
 def _is_human() -> bool:

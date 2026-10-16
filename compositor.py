@@ -57,6 +57,9 @@ TRANSITIONS = {"none", "random", *XFADE_TYPES}
 
 CLIP_SPEEDS = (0.5, 1.0, 1.5, 2.0)
 
+# Longest video Create Video / New Variation will render (the editor shows the same limit)
+MAX_VIDEO_SECONDS = 300
+
 
 def clip_speed(value):
     """Per-clip playback speed, snapped to one of CLIP_SPEEDS (default 1×)."""
@@ -428,8 +431,9 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
 
     # ── Step 1: process each clip to normalised w×h segments ──
     any_audio = any(clip_audios.get(p, False) for p in ordered)
-    processed = []
-    for i, clip_path in enumerate(ordered):
+    # Plan every clip's length first, so an over-long video is refused before any encoding
+    plan = []
+    for clip_path in ordered:
         clip_dur = get_video_duration(clip_path)
         is_final = "final" in os.path.basename(clip_path).lower()
 
@@ -459,7 +463,21 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             eff_max    = min(max_dur, eff_clip_dur) if eff_clip_dur > 0 else max_dur
             eff_min    = min(min_dur, eff_max)
             actual_dur = random.uniform(eff_min, eff_max)
+        plan.append((clip_path, is_final, trim_start, speed, actual_dur))
 
+    planned = sum(p[-1] for p in plan)
+    if transition in TRANSITIONS and transition != "none" and len(plan) > 1:
+        # Same overlap _join_with_transitions applies
+        d = round(max(0.1, min(transition_duration, 0.45 * min(p[-1] for p in plan))), 3)
+        planned -= d * (len(plan) - 1)
+    if planned > MAX_VIDEO_SECONDS + 0.5:
+        raise ValueError(
+            f"Videos can be up to {MAX_VIDEO_SECONDS // 60} minutes, this one would be "
+            f"{int(planned // 60)}m {int(planned % 60)}s. Shorten the clips or lower Duration per clip."
+        )
+
+    processed = []
+    for i, (clip_path, is_final, trim_start, speed, actual_dur) in enumerate(plan):
         # Text overlay is skipped on the "final" clip
         active_dt  = [] if (is_final or not drawtext_filters) else drawtext_filters
         keep_audio = clip_audios.get(clip_path, False)

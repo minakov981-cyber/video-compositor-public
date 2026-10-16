@@ -38,7 +38,7 @@ These are needed for the service to work, so no consent banner is required. Clou
 
 <h2>5. How long we keep data</h2>
 <ul>
-  <li><strong>Uploaded files and finished videos:</strong> deleted automatically, normally within 24 hours.</li>
+  <li><strong>Uploaded files and finished videos:</strong> deleted automatically about {{ file_retention_hours }} hour{{ 's' if file_retention_hours != 1 }} after they are uploaded or created.</li>
   <li><strong>IP-based security records:</strong> deleted after 24 hours.</li>
   <li><strong>Account data:</strong> kept while your account exists, and deleted when you ask us to delete the account.</li>
   <li><strong>Payment records:</strong> kept by Stripe/Link for as long as tax and accounting laws require.</li>

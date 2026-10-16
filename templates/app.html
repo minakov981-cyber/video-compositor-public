@@ -304,6 +304,7 @@
   .adv-wrap .overlay-toggle:hover { color: var(--text); }
   .dl-row { display: flex; gap: 10px; margin-top: 12px; }
   .dl-row .btn { padding: 10px 14px; font-size: .85rem; text-decoration: none; }
+  .dl-hint { margin-top: 8px; font-size: .74rem; font-family: var(--mono); color: var(--text-faint); }
   .overlay-wrap.collapsed .overlay-body,
   .overlay-wrap.collapsed .preview-island { display: none !important; }
   .preview-island {
@@ -1166,6 +1167,7 @@
           <a class="btn btn-secondary" id="dl-video" download>Download video</a>
           <a class="btn btn-secondary" id="dl-audio" download>Download audio (MP3)</a>
         </div>
+        <p class="dl-hint">Files are kept for {{ file_retention_hours }} hour{{ 's' if file_retention_hours != 1 }}, so download your video. New variations work until then.</p>
 
         <hr class="divider">
 
@@ -1199,6 +1201,8 @@
 
 <script>
   // ── State ──────────────────────────────────────────────────────────────────
+  const MAX_VIDEO_SECONDS = {{ max_video_seconds }};  // same limit the server enforces
+  let estimatedMaxSec = 0;                            // upper estimate from updateClipsDuration()
   let uploadedClips     = [];
   let previewBgFrame    = null;
   let audioFile     = null;
@@ -1908,6 +1912,7 @@
   function updateClipsDuration() {
     const el = document.getElementById('clips-duration');
     const n  = uploadedClips.length;
+    estimatedMaxSec = 0;
     if (!n) { el.textContent = ''; el.classList.remove('over-limit'); return; }
 
     const mode = getSelectedDurationMode();
@@ -1941,7 +1946,10 @@
       el.textContent = `Estimated duration: ${fmt(total)}`;
     }
 
-    el.classList.toggle('over-limit', maxSec > 180);
+    estimatedMaxSec = maxSec;
+    const over = maxSec > MAX_VIDEO_SECONDS;
+    el.classList.toggle('over-limit', over);
+    if (over) el.textContent += ` · over the ${MAX_VIDEO_SECONDS / 60}-minute limit`;
 
     function fmtSec(sec) {
       return sec % 1 === 0 ? `${sec}s` : `${sec.toFixed(1)}s`;
@@ -2245,6 +2253,9 @@
     clearError('create-error');
 
     if (!uploadedClips.length) return showError('create-error', 'Add at least one video clip.');
+    if (estimatedMaxSec > MAX_VIDEO_SECONDS) {
+      return showError('create-error', `Videos can be up to ${MAX_VIDEO_SECONDS / 60} minutes. Shorten the clips or lower Duration per clip.`);
+    }
     // Don't make people upload clips just to learn the free videos are used up
     if (currentPlan && !currentPlan.pro && currentPlan.generations_used >= currentPlan.generations_limit) {
       return showLimitModal('generations');
@@ -2393,7 +2404,7 @@
 
   // Resolves with the job result, rejects with the job's error message
   async function pollJob(jobId) {
-    const MAX_ATTEMPTS = 120; // 120 × 2.5s = 5 minutes
+    const MAX_ATTEMPTS = 360; // 360 × 2.5s = 15 minutes; a 5-minute video can take several minutes to render
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
       await new Promise(r => setTimeout(r, 2500));
       let data;
@@ -2407,7 +2418,7 @@
       if (data.status === 'done')  return data.result;
       if (data.status === 'error') throw new Error(data.error || 'Render failed.');
     }
-    throw new Error('Render timed out after 5 minutes. Please try again.');
+    throw new Error('Render timed out after 15 minutes. Please try again.');
   }
 
   async function pollStatus(jobId, errorId) {

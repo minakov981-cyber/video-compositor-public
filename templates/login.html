@@ -7,174 +7,173 @@
 <link rel="icon" href="/static/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/site.webmanifest">
-<title>{% if signup %}Sign Up{% else %}Sign In{% endif %} — ClipSnap</title>
+<title>{% if sent %}Check your inbox{% elif signup %}Sign Up{% elif forgot %}Login link{% else %}Sign In{% endif %} — ClipSnap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg:      #0d0d0f;
-    --surface: #16171c;
-    --border:  #2a2b35;
-    --accent:  #5b6af5;
-    --accent-h:#7080ff;
-    --text:    #e2e4f0;
-    --muted:   #6b7280;
-    --radius:  12px;
+    --bg: #0a0a0b; --bg-elevated: #131315; --bg-card: #18181b; --border: #26262a; --border-soft: rgba(255,255,255,0.07);
+    --text: #f5f3ef; --text-dim: #9a9aa2; --text-faint: #5c5c63;
+    --accent: #ff8e00; --accent-soft: rgba(255,142,0,0.12); --accent-glow: rgba(255,142,0,0.35);
+    --display: 'Sora', sans-serif; --mono: 'JetBrains Mono', monospace; --body: 'Inter', sans-serif;
   }
 
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-family: var(--body);
+    line-height: 1.5;
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 40px 20px;
+    padding: 40px 16px;
+    position: relative;
   }
+
+  /* Same dotted backdrop as the landing page */
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 100%);
+  }
+
+  .brand {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 22px;
+    font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--text); text-decoration: none;
+    position: relative;
+  }
+  .brand img { width: 34px; height: 34px; border-radius: 9px; box-shadow: 0 0 22px var(--accent-glow); }
 
   .card {
-    background: var(--surface);
+    position: relative;
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 40px 36px;
+    border-radius: 20px;
+    padding: 36px 32px;
     width: 100%;
     max-width: 420px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.45);
   }
-
-  .logo {
-    font-size: 1.4rem;
-    font-weight: 700;
-    letter-spacing: -.5px;
-    margin-bottom: 6px;
-  }
-
-  .logo span { color: var(--accent); }
 
   .tagline {
-    font-size: .85rem;
-    color: var(--muted);
-    margin-bottom: 32px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-bottom: 14px;
+  }
+  .tagline::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent-glow);
   }
 
   h2 {
-    font-size: 1.15rem;
-    font-weight: 600;
-    margin-bottom: 6px;
+    font-family: var(--display);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin-bottom: 8px;
   }
 
   .sub {
-    font-size: .85rem;
-    color: var(--muted);
+    font-size: 14.5px;
+    color: var(--text-dim);
     margin-bottom: 24px;
-    line-height: 1.5;
+    line-height: 1.6;
   }
+  .sub strong { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+  h2 + form, h2 + .alert { margin-top: 22px; }
 
   .field { margin-bottom: 16px; }
 
   .field label {
     display: block;
-    font-size: .82rem;
-    color: var(--muted);
-    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-dim);
+    margin-bottom: 7px;
   }
 
   .field input {
     width: 100%;
-    background: #0d0d0f;
+    background: var(--bg-card);
     border: 1px solid var(--border);
     color: var(--text);
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: .95rem;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: var(--body);
+    font-size: 15px;
     outline: none;
-    transition: border-color .2s;
+    transition: border-color .15s, box-shadow .15s;
   }
-
-  .field input:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--text-faint); }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
   .btn {
     width: 100%;
     background: var(--accent);
-    color: #fff;
+    color: #0a0a0b;
     border: none;
     border-radius: 10px;
-    padding: 12px;
-    font-size: .95rem;
+    padding: 13px;
+    font-family: var(--body);
+    font-size: 15px;
     font-weight: 600;
     cursor: pointer;
-    transition: background .2s;
-    margin-top: 4px;
+    transition: transform .15s ease, box-shadow .15s ease;
+    margin-top: 6px;
   }
-
-  .btn:hover { background: var(--accent-h); }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 28px var(--accent-glow); }
+  .btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
   .alert {
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 12px 14px;
-    font-size: .85rem;
+    font-size: 14px;
     margin-bottom: 20px;
   }
-
-  .alert-error {
-    background: rgba(239,68,68,.1);
-    border: 1px solid rgba(239,68,68,.3);
-    color: #fca5a5;
-  }
-
-  .alert-success {
-    background: rgba(34,197,94,.1);
-    border: 1px solid rgba(34,197,94,.3);
-    color: #86efac;
-  }
+  .alert-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: #fca5a5; }
+  .alert-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); color: #86efac; }
 
   .footer-link {
-    margin-top: 24px;
-    font-size: .82rem;
-    color: var(--muted);
+    margin-top: 22px;
+    font-size: 14px;
+    color: var(--text-dim);
     text-align: center;
   }
-
-  .footer-link a {
-    color: var(--accent);
-    text-decoration: none;
-    font-weight: 500;
-  }
-
+  .footer-link a { color: var(--accent); text-decoration: none; font-weight: 500; }
   .footer-link a:hover { text-decoration: underline; }
+  .footer-link + .footer-link { margin-top: 10px; }
 
   .sent-icon {
-    font-size: 2.5rem;
-    margin-bottom: 16px;
-  }
-
-  .divider {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 20px 0 16px;
-    color: var(--muted);
-    font-size: .78rem;
-  }
-
-  .divider::before,
-  .divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--border);
+    width: 52px; height: 52px; border-radius: 14px;
+    background: var(--accent-soft); border: 1px solid rgba(255,142,0,.4); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 18px;
   }
 
   /* Honeypot: invisible to people, bots fill it in */
   .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
   .cf-turnstile { margin-bottom: 16px; min-height: 65px; }
-  .consent { font-size: .76rem; color: var(--muted); text-align: center; margin-top: 12px; line-height: 1.5; }
-  .consent a { color: var(--accent); text-decoration: none; }
-  body { flex-direction: column; }
-  .legal-links { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; font-size: .8rem; }
-  .legal-links a { color: var(--muted, #6b7280); text-decoration: none; }
-  .legal-links a:hover { text-decoration: underline; }
+  .consent { font-size: 12.5px; color: var(--text-faint); text-align: center; margin-top: 14px; line-height: 1.55; }
+  .consent a { color: var(--text-dim); }
+  .legal-links { position: relative; margin-top: 26px; display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; font-size: 13px; }
+  .legal-links a { color: var(--text-faint); text-decoration: none; }
+  .legal-links a:hover { color: var(--text-dim); }
 
+  @media (max-width: 480px) {
+    .card { padding: 28px 20px; border-radius: 16px; }
+    h2 { font-size: 23px; }
+  }
 </style>
 {% if turnstile_site_key %}
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -182,14 +181,13 @@
 </head>
 <body>
 
-<div class="card">
+<a class="brand" href="/"><img src="/static/icon-192.png" alt="">ClipSnap</a>
 
-  <div class="logo">Clip <span>Snap</span></div>
-  <div class="tagline">Vertical reels, assembled instantly</div>
+<div class="card">
 
   {% if sent %}
 
-    <div class="sent-icon">📬</div>
+    <div class="sent-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
     <h2>Check your inbox</h2>
     <p class="sub">
       {% if signup_sent %}We sent a confirmation link to <strong>{{ email }}</strong>.
@@ -200,6 +198,7 @@
 
   {% elif signup %}
 
+    <div class="tagline">Free to start</div>
     <h2>Create your free account</h2>
     <p class="sub">{{ free_generations or 5 }} free videos and 7 days of Tools. No card needed.
       We'll email you a link to confirm your address and set a password.</p>
@@ -230,6 +229,7 @@
 
   {% elif forgot %}
 
+    <div class="tagline">Forgot password</div>
     <h2>Email me a login link</h2>
     <p class="sub">Enter your email and we'll send you a magic link to sign in. You can set a new password after.</p>
 
@@ -258,7 +258,8 @@
 
   {% else %}
 
-    <h2>Sign in</h2>
+    <div class="tagline">Welcome back</div>
+    <h2>Sign in to ClipSnap</h2>
 
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
@@ -280,7 +281,7 @@
       <a href="/forgot">Forgot password? Email me a login link</a>
     </div>
 
-    <div class="footer-link" style="margin-top: 12px;">
+    <div class="footer-link">
       No account yet? <a href="/signup">Sign up free</a>
     </div>
 

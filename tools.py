@@ -17,7 +17,7 @@ TOOL_OPTIONS = {
     "extract_audio": {"mp3", "m4a", "wav"},
     "convert":       {"mp4", "mov", "webm", "gif"},
     "speed":         {"0.5", "0.75", "1.25", "1.5", "2"},
-    "frames":        {"first", "last", "pick", "multi"},
+    "frames":        {"pick", "multi"},
 }
 
 FRAMES_MIN, FRAMES_MAX = 2, 100
@@ -28,7 +28,7 @@ FRAME_WORKERS = 4      # FFmpeg grabs running at once for Multiple
 # Suffix added to the original file name, and the output extension per option
 _SUFFIX = {"compress": "compressed", "extract_audio": "audio", "convert": "converted", "speed": "speed",
            "frames": "frames"}
-_FRAME_SUFFIX = {"first": "first_frame", "last": "last_frame", "pick": "frame", "multi": "frames"}
+_FRAME_SUFFIX = {"pick": "frame", "multi": "frames"}
 
 
 def _probe(path):
@@ -144,7 +144,7 @@ def _thumb(src_jpg, dst_jpg):
 
 
 def _run_frames(option, params, src, dst, thumb_prefix):
-    """Screenshots tool: one JPG (first / last / picked moment) or a ZIP of evenly spaced JPGs."""
+    """Screenshots tool: one JPG of the picked moment, or a ZIP of evenly spaced JPGs."""
     duration = get_video_duration(src)
     if duration <= 0:
         raise ValueError("This file has no video stream")
@@ -153,11 +153,7 @@ def _run_frames(option, params, src, dst, thumb_prefix):
     if stem.startswith(os.path.basename(thumb_prefix) + "_"):
         stem = stem[len(os.path.basename(thumb_prefix)) + 1:]
 
-    if option == "first":
-        times = [0.0]
-    elif option == "last":
-        times = [duration]
-    elif option == "pick":
+    if option == "pick":
         times = [min(params["time"], duration)]
     else:
         start = min(params["start"], duration)

@@ -683,15 +683,6 @@
   /* ── Screenshots tool ── */
   @media (min-width: 768px) { .tool-card-wide { grid-column: 1 / -1; } }
   .frames-panel { margin-bottom: 14px; }
-  .frames-preview {
-    position: relative; margin: 0 auto 12px; width: fit-content; max-width: 100%;
-    border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #000;
-  }
-  .frames-preview canvas { display: block; max-width: 100%; max-height: 280px; width: auto; height: auto; }
-  .frames-preview-time {
-    position: absolute; left: 8px; bottom: 8px; font-family: var(--mono); font-size: .72rem;
-    background: rgba(0,0,0,.7); color: var(--text); padding: 2px 7px; border-radius: 6px;
-  }
   .frames-count-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
     font-size: .74rem; font-family: var(--mono); color: var(--text-dim); }
   .frames-count-row input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); }
@@ -2560,10 +2551,9 @@
       options: [['0.5', '0.5×'], ['0.75', '0.75×'], ['1.25', '1.25×'], ['1.5', '1.5×'], ['2', '2×']],
       hints: {} },
     { id: 'frames', title: 'Screenshots', desc: 'Save frames from a video as JPG images.', button: 'Get screenshots',
-      accept: 'video/*', label: 'Frames', def: 'first', wide: true,
-      options: [['first', 'First frame'], ['last', 'Last frame'], ['pick', 'Pick a frame'], ['multi', 'Multiple']],
-      hints: { first: 'The very first frame of the video.', last: 'The very last frame of the video.',
-               pick: 'Click or drag on the timeline to choose the moment.',
+      accept: 'video/*', label: 'Frames', def: 'pick', wide: true,
+      options: [['pick', 'Pick a frame'], ['multi', 'Multiple']],
+      hints: { pick: 'Click or drag on the timeline to choose the moment. Hover to preview a frame.',
                multi: 'Evenly spaced frames, first and last included. Drag the handles to use part of the video. Downloads as a ZIP.' } },
   ];
   const toolState = {};
@@ -2695,7 +2685,6 @@
   function framesPanelHtml() {
     return `
       <div class="frames-panel hidden" id="frames-panel">
-        <div class="frames-preview" id="frames-preview"><canvas id="frames-canvas" width="320" height="180"></canvas><span class="frames-preview-time" id="frames-preview-time"></span></div>
         <div class="frames-count-row" id="frames-count-row">
           <span>Frames</span>
           <input type="range" id="frames-count" min="2" max="100" value="5" oninput="setFramesCount(this.value)">
@@ -2712,7 +2701,7 @@
           <div class="trim-handle trim-handle-right" id="frames-handle-right"></div>
         </div>
         <div class="trim-info" id="frames-info"></div>
-        <div class="frames-note hidden" id="frames-note">Your browser can't preview this file, so there's no timeline. First, Last and Multiple (whole video) still work.</div>
+        <div class="frames-note hidden" id="frames-note">Your browser can't preview this file, so there's no timeline. Multiple still works on the whole video.</div>
       </div>`;
   }
 
@@ -2766,6 +2755,7 @@
       if (loadId !== st.loadId) return;
       st.duration = 0;
       document.getElementById('frames-note').classList.remove('hidden');
+      if (toolState.frames.option === 'pick') setToolOption('frames', 'multi');
     }
     framesRefresh();
   }
@@ -2777,7 +2767,6 @@
     const mode = toolState.frames.option, has = st.duration > 0;
     const show = (id, on) => document.getElementById(id).classList.toggle('hidden', !on);
 
-    show('frames-preview', has && mode !== 'multi');
     show('frames-count-row', mode === 'multi');
     show('frames-timeline', has && (mode === 'pick' || mode === 'multi'));
     show('frames-info', mode === 'pick' || mode === 'multi');
@@ -2815,9 +2804,6 @@
         `<div class="frames-tick" style="left:${x(st.start + i * step)}"></div>`).join('');
     } else {
       document.getElementById('frames-marker').style.left = x(st.time);
-      const t = mode === 'first' ? 0 : mode === 'last' ? Math.max(0, d - 0.05) : st.time;
-      document.getElementById('frames-preview-time').textContent = mode === 'pick' ? fmtSec(t) : (mode === 'first' ? 'First frame' : 'Last frame');
-      framesDraw(t, document.getElementById('frames-canvas'), 320);
     }
   }
 

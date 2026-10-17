@@ -653,6 +653,19 @@
   }
   @media (min-width: 768px) { .tools-grid { grid-template-columns: 1fr 1fr; } }
   .tool-card { display: flex; flex-direction: column; }
+  /* Each tool gets its own dark tint (--tint is an "r, g, b" triple set per card) so they're easy to tell apart */
+  .tool-card[style*="--tint"] {
+    background: linear-gradient(160deg, rgba(var(--tint), .09), rgba(var(--tint), .02) 55%), var(--bg-card);
+    border-color: rgba(var(--tint), .22);
+  }
+  .tool-card .card-title { gap: 9px; font-size: 12px; }
+  .tool-card .card-title::before { display: none; }
+  .tool-icon {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: rgb(var(--tint)); background: rgba(var(--tint), .13); border: 1px solid rgba(var(--tint), .3);
+  }
+  .tool-icon svg { width: 16px; height: 16px; }
   .tool-desc { font-size: .83rem; color: var(--text-dim); margin: -8px 0 14px; }
   .tool-file {
     display: flex; align-items: center; gap: 10px;
@@ -2557,6 +2570,14 @@
                multi: 'Evenly spaced frames, first and last included. Drag the handles to use part of the video. Downloads as a ZIP.' } },
   ];
   const toolState = {};
+  // Icon and card tint per tool
+  const TOOL_LOOK = {
+    compress: { tint: '96, 165, 250', icon: '<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/>' },
+    extract_audio: { tint: '77, 229, 192', icon: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>' },
+    convert: { tint: '167, 139, 250', icon: '<path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/>' },
+    speed: { tint: '244, 114, 182', icon: '<path d="M12 13l4-4"/><path d="M3.5 18a9 9 0 1 1 17 0"/><circle cx="12" cy="13" r="1.2"/>' },
+    frames: { tint: '250, 204, 21', icon: '<path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/>' },
+  };
 
   function fmtBytes(n) {
     return n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`;
@@ -2564,8 +2585,8 @@
 
   function renderTools() {
     document.getElementById('tools-view').innerHTML = TOOLS.map(t => `
-      <div class="card tool-card${t.wide ? ' tool-card-wide' : ''}" id="tool-${t.id}">
-        <div class="card-title">${t.title}</div>
+      <div class="card tool-card${t.wide ? ' tool-card-wide' : ''}" id="tool-${t.id}" style="--tint: ${TOOL_LOOK[t.id].tint}">
+        <div class="card-title"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${TOOL_LOOK[t.id].icon}</svg></span>${t.title}</div>
         <p class="tool-desc">${t.desc}</p>
         <label class="tool-file" id="tool-file-${t.id}">
           <span class="tool-file-btn">Choose file</span>

@@ -2820,7 +2820,7 @@
 
   function framesHoverAt(clientX, t) {
     const st = framesState, tl = document.getElementById('frames-timeline').getBoundingClientRect();
-    const h = 128, w = Math.round(h * Math.min(st.ar, 1.9));
+    const h = 192, w = Math.round(h * Math.min(st.ar, 1.9));
     framesHover.style.width = `${w}px`; framesHover.style.height = `${h}px`;
     framesHover.style.left = `${Math.min(window.innerWidth - w - 4, Math.max(4, clientX - w / 2))}px`;
     framesHover.style.top = `${tl.top - h - 10}px`;

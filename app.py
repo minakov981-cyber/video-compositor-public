@@ -307,7 +307,7 @@ def _send_magic_link(email, subject, intro, hours=24):
 def index():
     if session.get("email"):
         return redirect(url_for("app_page"))
-    return render_template("index.html", free_generations=FREE_GENERATIONS)
+    return render_template("index.html", free_generations=FREE_GENERATIONS, free_variations=FREE_VARIATIONS)
 
 
 @app.route("/login", methods=["GET", "POST"])

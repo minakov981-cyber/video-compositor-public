@@ -653,8 +653,8 @@
   }
   @media (min-width: 768px) { .tools-grid { grid-template-columns: 1fr 1fr; } }
   .tool-card { display: flex; flex-direction: column; }
-  /* Each tool gets its own dark tint (--tint is an "r, g, b" triple set per card) so they're easy to tell apart */
-  .tool-card[style*="--tint"] {
+  /* Cards in Create and Tools get their own dark tint (--tint is an "r, g, b" triple set per card) so they're easy to tell apart */
+  .card[style*="--tint"] {
     background: linear-gradient(160deg, rgba(var(--tint), .09), rgba(var(--tint), .02) 55%), var(--bg-card);
     border-color: rgba(var(--tint), .22);
   }
@@ -874,7 +874,7 @@
   <div>
 
     <!-- Video clips -->
-    <div class="card" style="margin-bottom:20px">
+    <div class="card" style="--tint: 96, 165, 250; margin-bottom:20px">
       <div class="card-title">Video Clips</div>
 
       <div id="drop-zone">
@@ -974,7 +974,7 @@
     </div>
 
     <!-- Audio -->
-    <div class="card" style="margin-bottom:20px">
+    <div class="card" style="--tint: 77, 229, 192; margin-bottom:20px">
       <div class="card-title">Background Music <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></div>
       <div class="audio-row">
         <label for="audio-input">
@@ -1028,7 +1028,7 @@
     </div>
 
     <!-- Output format & fit mode -->
-    <div class="card" style="margin-bottom:20px">
+    <div class="card" style="--tint: 167, 139, 250; margin-bottom:20px">
       <div class="card-title">Export</div>
       <div class="field-row" style="align-items:start">
 
@@ -1118,7 +1118,7 @@
 
     <!-- Text overlay -->
     <div class="overlay-wrap collapsed" id="overlay-wrap">
-    <div class="card">
+    <div class="card" style="--tint: 244, 114, 182">
       <button type="button" class="overlay-toggle" onclick="toggleOverlay()" aria-expanded="false">
         <span class="card-title">Add Text <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-family:var(--body);font-size:.8rem">(optional)</span></span>
         <svg class="overlay-chevron" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg>
@@ -1216,7 +1216,7 @@
   <!-- ══ RIGHT: output panel ══ -->
   <div id="output-section">
 
-    <div class="card">
+    <div class="card" style="--tint: 250, 204, 21">
       <div class="card-title">Output Preview</div>
 
       <!-- Placeholder (shown until first render) -->

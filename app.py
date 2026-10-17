@@ -21,7 +21,7 @@ from werkzeug.utils import safe_join, secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from cleanup import cleanup_old_files
-from tools import TOOL_OPTIONS, output_name, run_tool
+from tools import TOOL_OPTIONS, frame_params, output_name, run_tool
 from compositor import (MAX_VIDEO_SECONDS, TRANSITIONS, clip_speed, compose_video, extract_audio_mp3,
                         normalize_export_opts)
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
@@ -1117,7 +1117,7 @@ def run_job(job):
                          lambda: refund_job(job))
     elif p["kind"] == "tool":
         _tool_job(job["job_id"], p["tool"], p["option"], p["src"], p["work_dir"],
-                  p["output_file"], p["download_name"])
+                  p["output_file"], p["download_name"], p.get("params"))
     else:
         set_render_job_error(job["job_id"], f"Unknown job kind {p['kind']!r}")
 
@@ -1143,6 +1143,12 @@ def tools_run(tool):
     f = request.files.get("file")
     if not f or not f.filename:
         return jsonify({"success": False, "error": "Choose a file first"}), 400
+    params = {}
+    if tool == "frames":
+        try:
+            params = frame_params(option, request.form)
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
 
     job_id   = uuid.uuid4().hex[:10]
     original = secure_filename(f.filename) or "video.mp4"
@@ -1156,15 +1162,16 @@ def tools_run(tool):
 
     enqueue_render_job(job_id, request.user["email"], {
         "kind": "tool", "tool": tool, "option": option, "src": src, "work_dir": work_dir,
-        "output_file": output_file, "download_name": download_name,
+        "output_file": output_file, "download_name": download_name, "params": params,
     })
     return jsonify({"success": True, "job_id": job_id})
 
 
-def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name):
+def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name, params=None):
     try:
         size_in = os.path.getsize(src)
-        extra = run_tool(tool, option, src, os.path.join(OUTPUT_DIR, output_file))
+        # Extra files a tool writes (Screenshots previews) start with the job id too, so _owns_output covers them
+        extra = run_tool(tool, option, src, os.path.join(OUTPUT_DIR, output_file), params, thumb_prefix=job_id)
         set_render_job_done(job_id, {
             "success":       True,
             "output":        output_file,

@@ -1191,6 +1191,10 @@
               <label>Box Opacity — <span id="box-opacity-value">60</span>%</label>
               <input type="range" id="box-opacity" min="0" max="100" value="60">
             </div>
+            <div class="field" style="margin:10px 0 0">
+              <label>Corner Radius — <span id="box-radius-value">0</span> px</label>
+              <input type="range" id="box-radius" min="0" max="60" value="0">
+            </div>
           </div>
         </div>
 
@@ -1437,6 +1441,7 @@
     const style      = document.getElementById('text-style').value;
     const boxColor   = document.getElementById('box-color-hex').value || '#000000';
     const boxOpacity = parseInt(document.getElementById('box-opacity').value, 10) / 100;
+    const boxRadius  = parseInt(document.getElementById('box-radius').value, 10) || 0;
 
     const scale      = H / 1920;
     const fs         = Math.max(5, Math.round(fontSize * scale));
@@ -1460,7 +1465,11 @@
       const g = parseInt(boxColor.slice(3, 5), 16);
       const b = parseInt(boxColor.slice(5, 7), 16);
       ctx.fillStyle = `rgba(${r},${g},${b},${boxOpacity})`;
-      ctx.fillRect((W - bw) / 2, baseY - padY, bw, bh);
+      const rad = Math.min(boxRadius * scale, bw / 2, bh / 2);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect((W - bw) / 2, baseY - padY, bw, bh, rad);
+      else ctx.rect((W - bw) / 2, baseY - padY, bw, bh);
+      ctx.fill();
     }
 
     ctx.shadowColor   = style === 'shadow' ? 'rgba(0,0,0,0.7)' : 'transparent';
@@ -1598,6 +1607,10 @@
   // ── Box opacity display ───────────────────────────────────────────────────
   document.getElementById('box-opacity').addEventListener('input', e => {
     document.getElementById('box-opacity-value').textContent = e.target.value;
+    updateTextPreview();
+  });
+  document.getElementById('box-radius').addEventListener('input', e => {
+    document.getElementById('box-radius-value').textContent = e.target.value;
     updateTextPreview();
   });
 
@@ -2378,6 +2391,7 @@
     fd.append('style',       document.getElementById('text-style').value);
     fd.append('box_color',   boxHex.value);
     fd.append('box_opacity', document.getElementById('box-opacity').value);
+    fd.append('box_radius', document.getElementById('box-radius').value);
 
     setLoading('create-btn', true, 'Uploading…');
     document.getElementById('processing-hint').style.display = 'block';
@@ -2419,6 +2433,7 @@
       style:       document.getElementById('text-style').value,
       box_color:   boxHex.value,
       box_opacity: parseInt(document.getElementById('box-opacity').value, 10),
+      box_radius:  parseInt(document.getElementById('box-radius').value, 10) || 0,
       output_format: getSelectedFormat(),
       fit_mode:      getSelectedFitMode(),
       transition:          document.getElementById('transition-type').value,

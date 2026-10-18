@@ -161,7 +161,7 @@ def parse_duration_range(s):
 
 
 def _escape_drawtext(text):
-    # FFmpeg drawtext option-level escaping
+    # FFmpeg drawtext option-level escaping (drawtext also gets expansion=none, so % stays literal)
     text = text.replace("\\", "\\\\")
     text = text.replace("'", "\\'")
     text = text.replace(":", "\\:")
@@ -229,6 +229,40 @@ def _measure_text_width(text, font_size, font_path=None):
     return int(len(text) * font_size * 0.55)
 
 
+BOX_RADIUS_MAX = 60
+
+
+def _box_filters(x, y, w, h, radius, color):
+    """drawbox filters for a filled box; radius > 0 rounds its corners.
+
+    drawbox can't draw curves, so a rounded box is stacked from disjoint strips: the middle band at full
+    width, and above/below it rows that narrow towards the corners following a quarter circle. Rows with
+    the same inset are merged, so a 24 px radius costs about a dozen drawboxes. Strips never overlap,
+    which keeps a see-through box evenly transparent.
+    """
+    r = max(0, min(int(radius), w // 2, h // 2))
+    if r == 0:
+        return [f"drawbox=x={x}:y={y}:w={w}:h={h}:color={color}:t=fill"]
+    rows = []  # (inset, height) from the top edge down to the middle band
+    for i in range(r):
+        d = r - i - 0.5                       # vertical distance from the corner circle's centre
+        inset = int(round(r - (r * r - d * d) ** 0.5))
+        if rows and rows[-1][0] == inset:
+            rows[-1][1] += 1
+        else:
+            rows.append([inset, 1])
+    filters, top = [], y
+    for inset, rh in rows:
+        filters.append(f"drawbox=x={x + inset}:y={top}:w={w - 2 * inset}:h={rh}:color={color}:t=fill")
+        top += rh
+    filters.append(f"drawbox=x={x}:y={y + r}:w={w}:h={h - 2 * r}:color={color}:t=fill")
+    bottom = y + h
+    for inset, rh in rows:
+        bottom -= rh
+        filters.append(f"drawbox=x={x + inset}:y={bottom}:w={w - 2 * inset}:h={rh}:color={color}:t=fill")
+    return filters
+
+
 def _build_drawtext_filters(text_options, canvas_w=1080, canvas_h=1920):
     """Return (filter_list, warning_or_None).
 
@@ -293,14 +327,12 @@ def _build_drawtext_filters(text_options, canvas_w=1080, canvas_h=1920):
         box_h = (len(lines) - 1) * line_spacing + font_size + 2 * BOX_PAD_Y
         box_y = base_y - BOX_PAD_Y
 
-        filters.append(
-            f"drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}"
-            f":color={box_color}@{box_opacity:.2f}:t=fill"
-        )
+        box_radius = int(text_options.get("box_radius", 0) or 0)
+        filters += _box_filters(box_x, box_y, box_w, box_h, box_radius, f"{box_color}@{box_opacity:.2f}")
         for idx, line in enumerate(lines):
             y_pos = base_y + idx * line_spacing
             filters.append(
-                f"drawtext=text='{_escape_drawtext(line.strip())}'"
+                f"drawtext=text='{_escape_drawtext(line.strip())}':expansion=none"
                 f":fontsize={font_size}:fontcolor={text_color}"
                 f":x=(w-text_w)/2:y={y_pos}{fontfile_opt}"
             )
@@ -309,7 +341,7 @@ def _build_drawtext_filters(text_options, canvas_w=1080, canvas_h=1920):
         for idx, line in enumerate(lines):
             y_pos = base_y + idx * line_spacing
             dt = (
-                f"drawtext=text='{_escape_drawtext(line.strip())}'"
+                f"drawtext=text='{_escape_drawtext(line.strip())}':expansion=none"
                 f":fontsize={font_size}:fontcolor={text_color}"
                 f":x=(w-text_w)/2:y={y_pos}{fontfile_opt}"
             )

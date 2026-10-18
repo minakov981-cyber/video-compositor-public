@@ -130,6 +130,13 @@ def extract_audio_mp3(src, dst):
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
 
+def has_audio_stream(filepath):
+    """Whether the file has at least one audio track."""
+    r = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+                        "-of", "csv=p=0", filepath], capture_output=True, text=True)
+    return bool(r.stdout.strip())
+
+
 def get_video_duration(filepath):
     cmd = [
         FFPROBE, "-v", "quiet",
@@ -462,7 +469,9 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
     )
 
     # ── Step 1: process each clip to normalised w×h segments ──
-    any_audio = any(clip_audios.get(p, False) for p in ordered)
+    # "Keep clip audio" only counts for clips that have sound; a silent clip gets silence instead of failing
+    clip_audios = {p: bool(clip_audios.get(p)) and has_audio_stream(p) for p in ordered}
+    any_audio = any(clip_audios.values())
     # Plan every clip's length first, so an over-long video is refused before any encoding
     plan = []
     for clip_path in ordered:

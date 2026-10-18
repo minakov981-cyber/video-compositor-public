@@ -1,0 +1,24 @@
+{# Header shared by the admin pages: brand, then tabs. Set admin_tab to "queue" or "grant" before including. #}
+<style>
+  .admin-head { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 0 auto 26px; }
+  .admin-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #f5f3ef;
+                 font-family: 'Sora', sans-serif; font-weight: 700; font-size: 20px; }
+  .admin-brand img { width: 34px; height: 34px; border-radius: 9px; box-shadow: 0 0 22px rgba(255,142,0,.35); }
+  .admin-brand span { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: .08em;
+                      text-transform: uppercase; color: #ff8e00; border: 1px solid rgba(255,142,0,.4); border-radius: 6px; padding: 2px 7px; }
+  .admin-tabs { display: flex; gap: 4px; padding: 4px; background: #18181b; border: 1px solid #26262a; border-radius: 12px; }
+  .admin-tabs a { padding: 8px 18px; border-radius: 9px; color: #9a9aa2; text-decoration: none; white-space: nowrap;
+                  font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600; transition: color .15s, background .15s; }
+  .admin-tabs a:hover { color: #f5f3ef; }
+  .admin-tabs a.active { background: #131315; color: #ff8e00; }
+  .admin-tabs a.out { color: #5c5c63; }
+  @media (max-width: 420px) { .admin-tabs a { padding: 8px 12px; font-size: 13px; } }
+</style>
+<header class="admin-head">
+  <a class="admin-brand" href="/app"><img src="/static/icon-192.png" alt="">ClipSnap <span>Admin</span></a>
+  <nav class="admin-tabs" aria-label="Admin">
+    <a href="/admin/queue" class="{{ 'active' if admin_tab == 'queue' }}">Render queue</a>
+    <a href="/admin" class="{{ 'active' if admin_tab == 'grant' }}">Grant access</a>
+    <a href="/app" class="out">Editor ↗</a>
+  </nav>
+</header>

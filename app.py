@@ -22,7 +22,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from cleanup import cleanup_old_files
 from tools import TOOL_OPTIONS, frame_params, output_name, run_tool
-from compositor import (MAX_VIDEO_SECONDS, TRANSITIONS, clip_speed, compose_video, extract_audio_mp3,
+from compositor import (BOX_RADIUS_MAX, MAX_VIDEO_SECONDS, TRANSITIONS, clip_speed, compose_video, extract_audio_mp3,
                         normalize_export_opts)
 from db import (clear_magic_token, get_user, get_user_by_token, grant_trial,
                 init_db, set_magic_token, set_password, upsert_user_paid,
@@ -308,6 +308,12 @@ def index():
     if session.get("email"):
         return redirect(url_for("app_page"))
     return render_template("index.html", free_generations=FREE_GENERATIONS, free_variations=FREE_VARIATIONS)
+
+
+@app.route("/v2")
+def index_v2():
+    """Experimental landing that shows the real editor; the old one stays at /."""
+    return render_template("index_v2.html", free_generations=FREE_GENERATIONS, free_variations=FREE_VARIATIONS)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -782,6 +788,7 @@ def _text_opts_from_form(form):
         "style":       form.get("style", "box"),
         "box_color":   form.get("box_color", "#000000"),
         "box_opacity": int(form.get("box_opacity", 60) or 60),
+        "box_radius":  max(0, min(BOX_RADIUS_MAX, int(form.get("box_radius", 0) or 0))),
     }
 
 
@@ -796,6 +803,7 @@ def _text_opts_from_json(data):
         "style":       data.get("style", "box"),
         "box_color":   data.get("box_color", "#000000"),
         "box_opacity": int(data.get("box_opacity", 60) or 60),
+        "box_radius":  max(0, min(BOX_RADIUS_MAX, int(data.get("box_radius", 0) or 0))),
     }
 
 

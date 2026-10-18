@@ -2968,7 +2968,8 @@
       chips = `<span class="plan-chip" title="Free videos left">${left}/${p.generations_limit} free videos</span>
                <a class="plan-chip upgrade" href="/account">Upgrade</a>`;
     }
-    document.getElementById('plan-bar').innerHTML = chips + '<a class="plan-chip" href="/account">Account</a>';
+    const admin = p.admin ? '<a class="plan-chip" href="/admin/queue" title="Render queue and admin tools">Admin</a>' : '';
+    document.getElementById('plan-bar').innerHTML = chips + admin + '<a class="plan-chip" href="/account">Account</a>';
     if (p.welcome && !welcomeShown) { welcomeShown = true; showWelcome(p); }
 
     const banner = document.getElementById('tools-banner');

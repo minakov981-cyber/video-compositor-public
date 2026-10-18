@@ -95,6 +95,9 @@ try:
 except ValueError:
     FILE_RETENTION_HOURS = 2
 
+# Accounts that are admins as soon as they sign in (no admin secret needed), comma-separated in Railway
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+
 # Operator details shown on the legal pages (Terms, Privacy, Refunds)
 LEGAL = {
     "owner":    os.environ.get("LEGAL_OWNER_NAME", "Kyrylo Pavlenko"),
@@ -211,6 +214,7 @@ def _plan_info(user) -> dict:
         "cancel_at_period_end": bool(user.get("cancel_at_period_end")),
         "has_billing":       bool(user.get("stripe_customer_id")),
         "welcome":           bool(user.get("welcome_pending")),
+        "admin":             user["email"].lower() in ADMIN_EMAILS,
     }
 
 
@@ -239,6 +243,14 @@ def login_required(f):
         sentry_sdk.set_user({"id": str(user["id"])})
         return f(*args, **kwargs)
     return decorated
+
+
+def _is_admin() -> bool:
+    """Signed in with the admin secret, or signed in as an account listed in ADMIN_EMAILS."""
+    if session.get("admin") is True:
+        return True
+    email = session.get("email")
+    return bool(email) and email.lower() in ADMIN_EMAILS and get_user(email) is not None
 
 
 def _start_session(email):
@@ -681,7 +693,7 @@ def stripe_webhook():
 
 @app.route("/admin")
 def admin_page():
-    return render_template("admin.html", admin_ok=session.get("admin"), error=None)
+    return render_template("admin.html", admin_ok=_is_admin(), error=None)
 
 
 @app.route("/admin/login", methods=["POST"])
@@ -696,7 +708,7 @@ def admin_login():
 @app.route("/admin/sentry-test")
 def admin_sentry_test():
     """Deliberate error to check that Sentry receives reports (admin only)."""
-    if session.get("admin") is not True:
+    if not _is_admin():
         return jsonify({"error": "Forbidden"}), 403
     raise RuntimeError("Sentry test error from /admin/sentry-test")
 
@@ -704,7 +716,7 @@ def admin_sentry_test():
 @app.route("/admin/queue")
 def admin_queue():
     """Render queue at a glance: what's waiting, what's rendering, recent failures (admin only)."""
-    if session.get("admin") is not True:
+    if not _is_admin():
         return redirect(url_for("admin_page"))
     q   = render_queue_overview()
     now = datetime.now(timezone.utc)
@@ -730,7 +742,7 @@ def admin_queue():
 def admin_grant_trial():
     secret = os.environ.get("ADMIN_SECRET", "")
     via_header  = secret and request.headers.get("X-Admin-Secret") == secret
-    via_session = session.get("admin") is True
+    via_session = _is_admin()
     if not via_header and not via_session:
         return jsonify({"error": "Forbidden"}), 403
 

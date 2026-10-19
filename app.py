@@ -20,6 +20,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import safe_join, secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+import autoedit
 from cleanup import cleanup_old_files
 from tools import TOOL_OPTIONS, frame_params, output_name, run_tool
 from compositor import (BOX_RADIUS_MAX, MAX_VIDEO_SECONDS, TRANSITIONS, clip_speed, compose_video, extract_audio_mp3,
@@ -158,7 +159,7 @@ def _cleanup_loop():
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
 def _is_api_path():
-    return request.path.startswith(("/compose", "/variation", "/fonts", "/output", "/status", "/tools", "/me"))
+    return request.path.startswith(("/compose", "/variation", "/fonts", "/output", "/status", "/tools", "/me", "/auto"))
 
 
 def _aware(dt):
@@ -266,7 +267,8 @@ def _start_session(email):
 @app.context_processor
 def _inject_template_globals():
     return {"turnstile_site_key": TURNSTILE_SITE_KEY, "legal": LEGAL,
-            "file_retention_hours": FILE_RETENTION_HOURS, "max_video_seconds": MAX_VIDEO_SECONDS}
+            "file_retention_hours": FILE_RETENTION_HOURS, "max_video_seconds": MAX_VIDEO_SECONDS,
+            "auto_max_sources": autoedit.MAX_SOURCES, "auto_max_minutes": autoedit.MAX_SOURCE_SECONDS // 60}
 
 
 def _is_human() -> bool:
@@ -907,7 +909,7 @@ def compose():
 
     audio_file = request.files.get("audio")
     if audio_file and audio_file.filename:
-        audio_path = os.path.join(session_dir, audio_file.filename)
+        audio_path = os.path.join(session_dir, secure_filename(audio_file.filename) or "music")
         audio_file.save(audio_path)
     else:
         audio_path = None
@@ -1135,6 +1137,8 @@ def run_job(job):
     if p["kind"] == "compose":
         _run_composition(p["session_id"], p["text_opts"], p["variation"], job["job_id"],
                          lambda: refund_job(job))
+    elif p["kind"] == "auto_analyze":
+        _auto_analyze_job(job["job_id"], p)
     elif p["kind"] == "tool":
         _tool_job(job["job_id"], p["tool"], p["option"], p["src"], p["work_dir"],
                   p["output_file"], p["download_name"], p.get("params"))
@@ -1207,6 +1211,140 @@ def _tool_job(job_id, tool, option, src, work_dir, output_file, download_name, p
             _report_job_error(exc, job_id, tool=tool)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ── Auto Edit ─────────────────────────────────────────────────────────────────
+
+AUTO_FORMATS = {"9:16", "16:9", "1:1"}
+AUTO_POSITIONS = {"top", "center", "bottom", "upper_center", "lower_center"}
+
+
+@app.route("/auto/analyze", methods=["POST"])
+@login_required
+def auto_analyze():
+    """Upload footage (and an optional track) and queue the scene/beat analysis. Free: only rendering counts."""
+    files = [f for f in request.files.getlist("videos") if f and f.filename]
+    if not files:
+        return jsonify({"success": False, "error": "Choose at least one video"}), 400
+    if len(files) > autoedit.MAX_SOURCES:
+        return jsonify({"success": False, "error": f"Use up to {autoedit.MAX_SOURCES} videos at once"}), 400
+    if not _rate_ok(("auto-analyze:" + request.user["email"], 30, 3600)):
+        return jsonify({"success": False, "error": "Too many analyses in a short time. Please try again in a bit."}), 429
+
+    job_id   = uuid.uuid4().hex[:10]
+    work_dir = os.path.join(UPLOAD_DIR, f"auto_{job_id}")
+    os.makedirs(work_dir, exist_ok=True)
+    sources, names = [], []
+    for i, f in enumerate(files):
+        name = secure_filename(f.filename) or f"video_{i}.mp4"
+        path = os.path.join(work_dir, f"{i:02d}_{name}")
+        f.save(path)
+        sources.append(path)
+        names.append(f.filename)
+    music = None
+    m = request.files.get("music")
+    if m and m.filename:
+        music = os.path.join(work_dir, "music_" + (secure_filename(m.filename) or "track"))
+        m.save(music)
+
+    enqueue_render_job(job_id, request.user["email"], {
+        "kind": "auto_analyze", "dir": work_dir, "sources": sources, "names": names,
+        "music": music, "music_name": m.filename if music else None,
+    })
+    return jsonify({"success": True, "job_id": job_id})
+
+
+def _auto_analyze_job(job_id, p):
+    try:
+        result = autoedit.analyze(p["sources"], p.get("music"), OUTPUT_DIR, job_id)
+        set_render_job_done(job_id, {"success": True, "names": p["names"], "music_name": p.get("music_name"), **result})
+    except Exception as exc:
+        message, report = _user_error(exc, "file")
+        set_render_job_error(job_id, message, None if isinstance(exc, ValueError) else str(exc))
+        if report:
+            _report_job_error(exc, job_id, tool="auto_analyze")
+
+
+@app.route("/auto/render", methods=["POST"])
+@login_required
+def auto_render():
+    """Plan a cut from an analysis and render it through the Create pipeline (counts as one video)."""
+    data = request.get_json(force=True) or {}
+    job_id = str(data.get("job_id", ""))
+    job = get_render_job(job_id)
+    if not job or not _owns(job_id) or job["status"] != "done" or (job.get("payload") or {}).get("kind") != "auto_analyze":
+        return jsonify({"success": False, "error": "Analysis not found. Please upload the videos again."}), 404
+    p, result = job["payload"], job["result"]
+    if any(not os.path.isfile(src) for src in p["sources"]):
+        return jsonify({"success": False, "error": f"The uploaded videos are no longer on the server "
+                                                   f"(they're kept for {FILE_RETENTION_HOURS} hours). Please upload them again."}), 410
+
+    length = int(data.get("length", 15)) if str(data.get("length", "15")).isdigit() else 15
+    length = length if length in autoedit.LENGTHS else 15
+    pace = data.get("pace") if data.get("pace") in autoedit.PACE_SECONDS else "medium"
+    output_format = data.get("format") if data.get("format") in AUTO_FORMATS else "9:16"
+    fit_mode = "blur" if data.get("fit") == "blur" else "crop"
+    music = p.get("music")
+    beat_sync = bool(data.get("beat_sync")) and bool(music) and bool(result.get("beat_period"))
+    keep_sound = bool(data.get("keep_sound"))
+
+    skip = {int(i) for i in data.get("skip", []) if str(i).lstrip("-").isdigit()}
+    scenes = [dict(s, skip=(s["id"] in skip)) for s in result["scenes"]]
+    try:
+        segments = autoedit.plan_cut(scenes, result["durations"], length, pace,
+                                     result.get("beat_period") if beat_sync else None)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    email = request.user["email"]
+    if not use_generation(email, None if _is_pro(request.user) else FREE_GENERATIONS):
+        return _upgrade_error(f"You've used all {FREE_GENERATIONS} free videos. "
+                              "Upgrade to Pro for unlimited videos and variations.")
+
+    # Each segment is a hard link to its source with its own trim, so Create's renderer and
+    # New Variation work on them like on separate clips (no copies, no re-encoding beforehand)
+    session_id  = uuid.uuid4().hex[:10]
+    session_dir = os.path.join(UPLOAD_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+
+    def link(src, dst):
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copyfile(src, dst)
+        return dst
+
+    clips, clip_trims, clip_audios = [], {}, {}
+    for i, seg in enumerate(segments):
+        src = p["sources"][seg["source"]]
+        path = link(src, os.path.join(session_dir, f"seg_{i:03d}{os.path.splitext(src)[1] or '.mp4'}"))
+        clips.append(path)
+        clip_trims[path] = {"start": seg["start"], "end": round(seg["start"] + seg["duration"], 4), "speed": 1.0}
+        clip_audios[path] = keep_sound
+    audio_path = link(music, os.path.join(session_dir, os.path.basename(music))) if music else None
+
+    caption = str(data.get("caption", ""))[:300]
+    text_opts = {
+        "text": caption, "font": "", "font_size": 64,
+        "position": data.get("position") if data.get("position") in AUTO_POSITIONS else "center",
+        "offset": 0, "color": "#ffffff", "style": "box", "box_color": "#000000", "box_opacity": 60, "box_radius": 24,
+    }
+    create_compose_session(
+        session_id=session_id, hook_clips=[], middle_clips=clips, final_clips=[],
+        audio=audio_path, duration_range="2",
+        music_start=float(result.get("first_beat") or 0.0) if beat_sync else 0.0, music_end=None,
+        music_fade_out=bool(music), music_fade_duration=1.5,
+        clip_audios=clip_audios, use_original_duration=True,
+        output_format=output_format, fit_mode=fit_mode, clip_trims=clip_trims, ordered_clips=clips,
+        transition="none", transition_duration=0.5, normalize_audio=keep_sound and bool(music),
+        export_opts=normalize_export_opts({}), owner_email=email,
+    )
+    render_id = uuid.uuid4().hex[:10]
+    enqueue_render_job(render_id, email, {"kind": "compose", "session_id": session_id, "text_opts": text_opts,
+                                          "variation": False, "refund": "generation"})
+    return jsonify({"success": True, "session_id": session_id, "job_id": render_id,
+                    "segments": len(segments), "duration": round(sum(x["duration"] for x in segments), 2),
+                    "beat_sync": beat_sync, "text_opts": text_opts})
 
 
 @app.route("/status/<job_id>")

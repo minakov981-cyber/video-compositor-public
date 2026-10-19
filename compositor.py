@@ -514,7 +514,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
     if planned > MAX_VIDEO_SECONDS + 0.5:
         raise ValueError(
             f"Videos can be up to {MAX_VIDEO_SECONDS // 60} minutes, this one would be "
-            f"{int(planned // 60)}m {int(planned % 60)}s. Shorten the clips or lower Duration per clip."
+            f"{int(planned // 60)}m {int(planned % 60)}s. Shorten or trim the clips."
         )
 
     processed = []
@@ -526,7 +526,12 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
         out = os.path.join(temp_dir, f"clip_{i:03d}.mp4")
 
         speed_vf = f"setpts=PTS/{speed}" if speed != 1 else None
-        speed_af = ["-af", f"atempo={speed}"] if speed != 1 else []
+        # Exact frame count: "-t" alone can drop the last frame (29 instead of 30), which adds up over
+        # many short clips and pulls beat-synced cuts off the beat. Audio is trimmed to the same length.
+        n_frames = max(1, round(actual_dur * 30))
+        exact    = n_frames / 30
+        t_limit  = ["-t", f"{exact + 0.25:.3f}", "-frames:v", str(n_frames)]
+        speed_af = ["-af", (f"atempo={speed}," if speed != 1 else "") + f"apad,atrim=end={exact:.4f}"]
 
         if fit_mode == "blur":
             fc  = _build_blur_filter_complex(w, h, active_dt, pre=speed_vf)
@@ -537,17 +542,17 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             if any_audio and not keep_audio:
                 cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
                 cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0",
-                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast", *seg_crf,
+                        *t_limit, "-c:v", "libx264", "-preset", "fast", *seg_crf,
                         "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "128k", "-shortest", out]
             elif keep_audio:
                 cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a:0", *speed_af,
-                        "-t", str(actual_dur), "-c:v", "libx264", "-preset", "fast", *seg_crf,
+                        *t_limit, "-c:v", "libx264", "-preset", "fast", *seg_crf,
                         "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
             else:
                 cmd += ["-filter_complex", fc, "-map", "[vout]",
-                        "-t", str(actual_dur), "-an", "-c:v", "libx264", "-preset", "fast", *seg_crf,
+                        *t_limit, "-an", "-c:v", "libx264", "-preset", "fast", *seg_crf,
                         "-pix_fmt", "yuv420p", "-r", "30", out]
         else:  # crop (default)
             vf = _build_crop_vf(w, h)
@@ -561,17 +566,17 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             cmd += ["-i", clip_path]
             if any_audio and not keep_audio:
                 cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-                        "-t", str(actual_dur), "-vf", vf,
+                        *t_limit, "-vf", vf,
                         "-map", "0:v:0", "-map", "1:a:0",
                         "-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "128k", "-shortest", out]
             elif keep_audio:
-                cmd += ["-t", str(actual_dur), "-vf", vf,
+                cmd += [*t_limit, "-vf", vf,
                         "-map", "0:v:0", "-map", "0:a:0", *speed_af,
                         "-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30",
                         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", out]
             else:
-                cmd += ["-t", str(actual_dur), "-vf", vf, "-an",
+                cmd += [*t_limit, "-vf", vf, "-an",
                         "-c:v", "libx264", "-preset", "fast", *seg_crf, "-pix_fmt", "yuv420p", "-r", "30", out]
 
         r = subprocess.run(cmd, capture_output=True, text=True)
@@ -579,7 +584,7 @@ def compose_video(hook_clips, middle_clips, final_clips, audio,
             raise RuntimeError(
                 f"FFmpeg failed on clip {os.path.basename(clip_path)}:\n{r.stderr[-800:]}"
             )
-        processed.append((out, actual_dur))
+        processed.append((out, exact))
 
     clip_order = [os.path.basename(p) for p, _ in zip(ordered, processed)]
 

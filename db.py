@@ -368,6 +368,19 @@ def update_compose_session_options(
         )
 
 
+def set_compose_session_plan(session_id, hook_clips, middle_clips, final_clips, ordered_clips,
+                             clip_trims, clip_audios, music_start, transition, duration_range):
+    """Replace a session's clips with the segments Smart Auto planned (see app._plan_smart_session)."""
+    with _db() as cur:
+        cur.execute(
+            "UPDATE compose_sessions SET hook_clips = %s, middle_clips = %s, final_clips = %s, ordered_clips = %s, "
+            "clip_trims = %s, clip_audios = %s, music_start = %s, transition = %s, duration_range = %s, "
+            "use_original_duration = TRUE WHERE session_id = %s",
+            (Json(hook_clips), Json(middle_clips), Json(final_clips), Json(ordered_clips), Json(clip_trims),
+             Json(clip_audios), music_start, transition, duration_range, session_id),
+        )
+
+
 def increment_variation_count(session_id: str) -> int:
     with _db() as cur:
         cur.execute(

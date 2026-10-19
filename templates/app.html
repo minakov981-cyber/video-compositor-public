@@ -157,7 +157,7 @@
     font-size: .8rem; color: var(--text-dim); font-family: var(--mono);
   }
   .full-length-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
-  #duration-range-field.is-off { opacity: .45; }
+  #auto-smart-fields.is-off .auto-row, #auto-smart-fields.is-off #beat-row { opacity: .45; pointer-events: none; }
   .clip-row {
     display: flex; align-items: center; gap: 8px;
     background: var(--bg-elevated);
@@ -693,57 +693,18 @@
   .tool-result strong { color: var(--accent); font-weight: 600; }
   .tool-result .btn { width: auto; padding: 8px 14px; font-size: .82rem; text-decoration: none; flex-shrink: 0; }
 
-  /* ── Auto Edit ── */
-  .auto-drop {
-    border: 1.5px dashed var(--border); border-radius: 12px; padding: 26px 18px; text-align: center; cursor: pointer;
-    background: var(--bg-elevated); transition: border-color .2s, background .2s; user-select: none;
-  }
-  .auto-drop:hover, .auto-drop.drag-over { border-color: var(--accent); background: var(--accent-soft); }
-  .auto-drop svg { opacity: .45; margin-bottom: 8px; }
-  .auto-drop p { color: var(--text-dim); font-size: .9rem; }
-  .auto-drop strong { color: var(--accent); }
-  .auto-drop .auto-drop-sub { font-family: var(--mono); font-size: .74rem; color: var(--text-faint); margin-top: 4px; }
-  .auto-files { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-  .auto-file {
-    display: flex; align-items: center; gap: 10px; background: var(--bg-elevated); border: 1px solid var(--border);
-    border-radius: 9px; padding: 8px 10px; font-size: .82rem;
-  }
-  .auto-file span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .auto-file small { font-family: var(--mono); color: var(--text-faint); flex-shrink: 0; }
-  .auto-file button { background: none; border: 0; color: var(--text-faint); cursor: pointer; font-size: .9rem; }
-  .auto-file button:hover { color: var(--red); }
-  .auto-summary { font-family: var(--mono); font-size: .78rem; color: var(--text-dim); margin: -6px 0 12px; }
-  .auto-summary strong { color: var(--accent); font-weight: 600; }
-  .auto-scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; max-height: 420px; overflow-y: auto; }
-  .auto-scene {
-    position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #000;
-    cursor: pointer; padding: 0; font: inherit; color: inherit; aspect-ratio: 3 / 4;
-  }
-  .auto-scene img { display: block; width: 100%; height: 100%; object-fit: cover; transition: opacity .15s, filter .15s; }
-  .auto-scene .t {
-    position: absolute; left: 0; right: 0; bottom: 0; font-family: var(--mono); font-size: .62rem; text-align: center;
-    background: rgba(0,0,0,.7); color: var(--text); padding: 2px 0;
-  }
-  .auto-scene .flag {
-    position: absolute; top: 4px; left: 4px; font-family: var(--mono); font-size: .58rem; text-transform: uppercase;
-    background: rgba(0,0,0,.75); color: var(--warn, #facc15); padding: 1px 5px; border-radius: 4px;
-  }
-  .auto-scene .src { position: absolute; top: 4px; right: 4px; font-family: var(--mono); font-size: .58rem; background: rgba(0,0,0,.7); padding: 1px 5px; border-radius: 4px; }
-  .auto-scene.off { border-style: dashed; }
-  .auto-scene.off img { opacity: .25; filter: grayscale(1); }
-  .auto-scene.off::after {
-    content: 'Skipped'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    font-family: var(--mono); font-size: .66rem; color: var(--text-dim);
-  }
-  .auto-scene:not(.off):hover { border-color: var(--accent); }
+  /* ── Smart Auto (Length / Pace rows) ── */
   .auto-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
   .auto-row > .speed-label { width: 56px; flex-shrink: 0; font-size: .74rem; font-family: var(--mono); color: var(--text-dim); }
   .auto-row .tool-opts { margin: 0; }
-  .auto-bpm { font-family: var(--mono); font-size: .74rem; color: var(--accent); }
-  #auto-beat-row.is-off { opacity: .45; }
-  .auto-placeholder { text-align: center; color: var(--text-faint); padding: 70px 20px; }
-  .auto-placeholder svg { opacity: .4; margin-bottom: 10px; }
-  .auto-placeholder p { font-size: .85rem; }
+  #beat-row { margin-top: 2px; }
+  .length-row input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .length-num { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: .76rem; color: var(--text-dim); }
+  .length-num input {
+    width: 56px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 7px; color: var(--text);
+    font-family: var(--mono); font-size: .8rem; padding: 4px 6px; text-align: center;
+  }
+  .length-num input:focus { outline: none; border-color: var(--accent); }
 
   /* ── Screenshots tool ── */
   @media (min-width: 768px) { .tool-card-wide { grid-column: 1 / -1; } }
@@ -914,78 +875,10 @@
 
 <nav class="view-tabs" role="tablist">
   <button type="button" class="view-tab active" role="tab" aria-selected="true" data-view="create" onclick="switchView('create')">Create</button>
-  <button type="button" class="view-tab" role="tab" aria-selected="false" data-view="auto" onclick="switchView('auto')">Auto Edit</button>
   <button type="button" class="view-tab" role="tab" aria-selected="false" data-view="tools" onclick="switchView('tools')">Tools</button>
 </nav>
 
 <div id="tools-banner" class="plan-banner hidden"></div>
-<div id="auto-view" class="layout hidden">
-  <div>
-    <div class="card" style="--tint: 77, 229, 192; margin-bottom:20px">
-      <div class="card-title has-icon"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="m6 6 2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg></span>Auto Edit</div>
-      <p class="tool-desc">Drop in your long videos and a track. ClipSnap finds the scenes, skips dark and blurry bits, and cuts to the beat.</p>
-      <div class="auto-drop" id="auto-drop" onclick="document.getElementById('auto-videos').click()">
-        <svg width="34" height="34" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="13" height="11" rx="1.5"/><path d="M15.5 10l6-3.5v11l-6-3.5z"/></svg>
-        <p>Drop videos here or <strong>click to browse</strong></p>
-        <p class="auto-drop-sub">Up to {{ auto_max_sources }} videos · {{ auto_max_minutes }} min in total</p>
-      </div>
-      <input type="file" id="auto-videos" accept="video/*" multiple class="hidden">
-      <div class="auto-files" id="auto-files"></div>
-      <label class="tool-file" id="auto-music-zone" style="margin-top:12px">
-        <span class="tool-file-btn">♪ Add music</span>
-        <span class="tool-file-name" id="auto-music-name">optional · the cuts follow its beat</span>
-        <input type="file" id="auto-music" accept="audio/*,video/*" class="hidden">
-      </label>
-      <button class="btn btn-primary" id="auto-analyze-btn" onclick="autoAnalyze()" style="margin-top:16px">Find scenes</button>
-      <div id="auto-analyze-error"></div>
-    </div>
-
-    <div class="card hidden" id="auto-scenes-card" style="--tint: 96, 165, 250; margin-bottom:20px">
-      <div class="card-title has-icon"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg></span>Scenes</div>
-      <p class="auto-summary" id="auto-summary"></p>
-      <div class="auto-scenes" id="auto-scenes"></div>
-      <p class="tool-hint" style="margin:10px 0 0">Tap a scene to skip it or bring it back. Dark and blurry scenes are skipped for you.</p>
-    </div>
-
-    <div class="card hidden" id="auto-settings-card" style="--tint: 167, 139, 250">
-      <div class="card-title has-icon"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></span>Settings</div>
-      <div class="auto-row"><span class="speed-label">Length</span><div class="tool-opts auto-opts" data-group="length"><button type="button" class="speed-chip active" data-value="15" onclick="autoPick(this)">15 s</button><button type="button" class="speed-chip" data-value="30" onclick="autoPick(this)">30 s</button><button type="button" class="speed-chip" data-value="60" onclick="autoPick(this)">60 s</button></div></div>
-      <div class="auto-row"><span class="speed-label">Pace</span><div class="tool-opts auto-opts" data-group="pace"><button type="button" class="speed-chip" data-value="fast" onclick="autoPick(this)">Fast</button><button type="button" class="speed-chip active" data-value="medium" onclick="autoPick(this)">Medium</button><button type="button" class="speed-chip" data-value="slow" onclick="autoPick(this)">Slow</button></div></div>
-      <div class="auto-row"><span class="speed-label">Format</span><div class="tool-opts auto-opts" data-group="format"><button type="button" class="speed-chip active" data-value="9:16" onclick="autoPick(this)">9:16</button><button type="button" class="speed-chip" data-value="1:1" onclick="autoPick(this)">1:1</button><button type="button" class="speed-chip" data-value="16:9" onclick="autoPick(this)">16:9</button></div></div>
-      <div class="auto-row"><span class="speed-label">Fit</span><div class="tool-opts auto-opts" data-group="fit"><button type="button" class="speed-chip active" data-value="crop" onclick="autoPick(this)">Crop to fill</button><button type="button" class="speed-chip" data-value="blur" onclick="autoPick(this)">Blurred background</button></div></div>
-      <label class="full-length-toggle" id="auto-beat-row"><input type="checkbox" id="auto-beat" checked> Cut on the beat <span class="auto-bpm" id="auto-bpm"></span></label>
-      <label class="full-length-toggle"><input type="checkbox" id="auto-sound"> Keep the videos' own sound</label>
-      <div class="field" style="margin-top:12px">
-        <label for="auto-caption">Caption (optional)</label>
-        <textarea id="auto-caption" rows="2" placeholder="Text on the video&#10;Press Enter for new lines"></textarea>
-      </div>
-      <div class="auto-row"><span class="speed-label">Text</span><div class="tool-opts auto-opts" data-group="position"><button type="button" class="speed-chip" data-value="top" onclick="autoPick(this)">Top</button><button type="button" class="speed-chip active" data-value="center" onclick="autoPick(this)">Center</button><button type="button" class="speed-chip" data-value="bottom" onclick="autoPick(this)">Bottom</button></div></div>
-      <button class="btn btn-primary" id="auto-create-btn" onclick="autoCreate()" style="margin-top:14px">Create Video</button>
-      <div id="auto-create-error"></div>
-    </div>
-  </div>
-
-  <div>
-    <div class="card" style="--tint: 250, 204, 21">
-      <div class="card-title has-icon"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg></span>Result</div>
-      <div class="auto-placeholder" id="auto-placeholder">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="3"/><polygon points="10,8 16,12 10,16"/></svg>
-        <p>Your video will appear here</p>
-      </div>
-      <div class="hidden" id="auto-output">
-        <div class="video-wrap" id="auto-video-wrap"><video id="auto-video" controls playsinline></video></div>
-        <div class="video-meta" id="auto-meta"></div>
-        <div class="dl-row"><a class="btn btn-secondary" id="auto-dl" download>Download video</a></div>
-        <p class="dl-hint">Files are kept for {{ file_retention_hours }} hour{{ 's' if file_retention_hours != 1 }}, so download your video.</p>
-        <hr class="divider">
-        <p style="font-size:.83rem;color:var(--text-dim);margin-bottom:12px">Same scenes and beat, new order.</p>
-        <button class="btn btn-secondary" id="auto-variation-btn" onclick="autoVariation()">New Variation</button>
-        <div id="auto-variation-error"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div id="tools-view" class="tools-grid hidden"></div>
 
 <div class="layout" id="create-view">
@@ -1016,7 +909,7 @@
           <button type="button" class="seg-btn active" data-value="auto" onclick="selectDurationMode(this)">
             <span class="seg-info">
               <span class="seg-label">Auto</span>
-              <span class="seg-sub">Random duration per clip</span>
+              <span class="seg-sub">Best moments, cut to length</span>
             </span>
           </button>
           <button type="button" class="seg-btn" data-value="manual" onclick="selectDurationMode(this)">
@@ -1031,10 +924,16 @@
             <input type="checkbox" id="use-full-length" onchange="toggleFullLength()">
             Use original clip length
           </label>
-          <div class="field" id="duration-range-field" style="margin-bottom:0">
-            <label>Duration per clip (seconds)</label>
-            <input type="text" id="duration-range" value="1.5-2.5" placeholder="e.g. 2  or  1.5-2.5" oninput="updateClipsDuration()">
-            <div class="hint">Fixed: <code>2</code> &nbsp;·&nbsp; Range: <code>1.5-2.5</code></div>
+          <div id="auto-smart-fields">
+            <div class="auto-row length-row"><span class="speed-label">Length</span>
+              <input type="range" id="auto-length" min="5" max="120" step="1" value="15" oninput="setAutoLength(this.value)" aria-label="Video length in seconds">
+              <span class="length-num"><input type="number" id="auto-length-num" min="5" max="120" value="15" onchange="setAutoLength(this.value)" aria-label="Video length in seconds">s</span>
+            </div>
+            <div class="auto-row"><span class="speed-label">Pace</span><div class="tool-opts auto-opts" data-group="pace"><button type="button" class="speed-chip" data-value="fast" onclick="autoPick(this)">Fast</button><button type="button" class="speed-chip active" data-value="medium" onclick="autoPick(this)">Medium</button><button type="button" class="speed-chip" data-value="slow" onclick="autoPick(this)">Slow</button></div></div>
+            <label class="full-length-toggle hidden" id="beat-row" title="Cuts land on the beat of the background music. Transitions are turned off so the cuts stay on time.">
+              <input type="checkbox" id="beat-sync" checked> Cut on the beat of the music
+            </label>
+            <p class="tool-hint" style="margin:4px 0 0">ClipSnap picks the best parts of your clips, skipping dark and blurry bits.</p>
           </div>
         </div>
         <div id="duration-manual-panel" class="hidden">
@@ -1372,7 +1271,7 @@
         <div id="variation-section">
           <div class="card-title">New Variation</div>
           <p style="font-size:.83rem;color:var(--text-dim);margin-bottom:14px">
-            Middle clips will be reshuffled with new random durations.
+            The middle clips get a new order.
           </p>
 
           <div class="field">
@@ -1773,8 +1672,7 @@
 
   function toggleFullLength() {
     const on = document.getElementById('use-full-length').checked;
-    document.getElementById('duration-range').disabled = on;
-    document.getElementById('duration-range-field').classList.toggle('is-off', on);
+    document.getElementById('auto-smart-fields').classList.toggle('is-off', on);
     updateClipsDuration();
   }
 
@@ -2137,21 +2035,13 @@
     const cut  = transitionOverlap(n);
 
     if (!useFullLength()) {
-      const raw   = (document.getElementById('duration-range').value || '2').trim();
-      const parts = raw.split('-').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0);
-      if (parts.length >= 2) {
-        const lo = Math.max(0, Math.min(parts[0], parts[1]) * n - cut);
-        const hi = Math.max(0, Math.max(parts[0], parts[1]) * n - cut);
-        maxSec = hi;
-        let text = `${fmtSec(lo)} – ${fmtSec(hi)}`;
-        if (hi >= 60) text += ` (${fmtMin(lo)} – ${fmtMin(hi)})`;
-        el.textContent = `Estimated duration: ${text}`;
-      } else if (parts.length === 1) {
-        maxSec = Math.max(0, parts[0] * n - cut);
-        el.textContent = `Estimated duration: ${fmt(maxSec)}`;
-      } else {
-        el.textContent = '';
-      }
+      // Smart Auto: the chosen length, unless there isn't that much footage
+      const length  = parseInt(document.getElementById('auto-length').value, 10);
+      const known   = uploadedClips.every(c => c.duration != null);
+      const footage = known ? uploadedClips.reduce((t, c) => t + c.duration, 0) : Infinity;
+      maxSec = Math.min(length, footage);
+      el.textContent = `Estimated duration: about ${fmt(Math.round(maxSec))}`;
+      if (footage < length) el.textContent += ` · add more clips for ${length}s`;
     } else {
       if (!uploadedClips.every(c => c.duration != null)) { el.textContent = ''; el.classList.remove('over-limit'); return; }
       let total = 0;
@@ -2435,6 +2325,7 @@
   document.getElementById('audio-input').addEventListener('change', e => {
     audioFile = e.target.files[0] || null;
     document.getElementById('audio-name').textContent = audioFile ? audioFile.name : 'No file selected';
+    document.getElementById('beat-row').classList.toggle('hidden', !audioFile);
     if (audioFile) {
       initAudioPlayer(audioFile);
       buildWaveform(audioFile);
@@ -2471,7 +2362,7 @@
 
     if (!uploadedClips.length) return showError('create-error', 'Add at least one video clip.');
     if (estimatedMaxSec > MAX_VIDEO_SECONDS) {
-      return showError('create-error', `Videos can be up to ${MAX_VIDEO_SECONDS / 60} minutes. Shorten the clips or lower Duration per clip.`);
+      return showError('create-error', `Videos can be up to ${MAX_VIDEO_SECONDS / 60} minutes. Shorten or trim the clips.`);
     }
     // Don't make people upload clips just to learn the free videos are used up
     if (currentPlan && !currentPlan.pro && currentPlan.generations_used >= currentPlan.generations_limit) {
@@ -2490,7 +2381,13 @@
     fd.append('clip_audios', JSON.stringify(uploadedClips.map(c => c.keepAudio)));
 
     fd.append('audio',          audioFile);
-    fd.append('duration_range', document.getElementById('duration-range').value.trim() || '2');
+    fd.append('duration_range', '2');
+    if (getSelectedDurationMode() === 'auto' && !useFullLength()) {
+      fd.append('auto_mode', 'smart');
+      fd.append('auto_length', document.getElementById('auto-length').value);
+      fd.append('auto_pace', autoOpt('pace'));
+      fd.append('beat_sync', String(!!audioFile && document.getElementById('beat-sync').checked));
+    }
     fd.append('use_original_duration', useFullLength());
     fd.append('music_start',         document.getElementById('music-start').value);
     fd.append('music_end',           document.getElementById('music-end').value.trim());
@@ -2670,7 +2567,6 @@
   function switchView(view) {
     document.getElementById('create-view').classList.toggle('hidden', view !== 'create');
     document.getElementById('tools-view').classList.toggle('hidden', view !== 'tools');
-    document.getElementById('auto-view').classList.toggle('hidden', view !== 'auto');
     document.querySelectorAll('.view-tab').forEach(t => {
       const on = t.dataset.view === view;
       t.classList.toggle('active', on);
@@ -2831,189 +2727,19 @@
       </div>`;
   }
 
-  // ── Auto Edit ─────────────────────────────────────────────────────────────
-  const AUTO_MAX = {{ auto_max_sources }};
-  const autoState = { files: [], music: null, analysis: null, jobId: null, skip: new Set(), session: null, textOpts: null };
-
+  // Chip groups (Length / Pace): one active chip per group
   function autoPick(btn) {
     btn.parentElement.querySelectorAll('.speed-chip').forEach(b => b.classList.toggle('active', b === btn));
+    updateClipsDuration();
+  }
+  function setAutoLength(v) {
+    const n = Math.max(5, Math.min(120, parseInt(v, 10) || 15));
+    document.getElementById('auto-length').value = n;
+    document.getElementById('auto-length-num').value = n;
+    updateClipsDuration();
   }
   function autoOpt(group) {
     return document.querySelector(`.auto-opts[data-group="${group}"] .speed-chip.active`).dataset.value;
-  }
-
-  function autoAddFiles(list) {
-    for (const f of list) {
-      if (!f.type.startsWith('video/') && !/\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(f.name)) continue;
-      if (autoState.files.length < AUTO_MAX) autoState.files.push(f);
-    }
-    autoResetAnalysis();
-    autoRenderFiles();
-  }
-  function autoRemoveFile(i) {
-    autoState.files.splice(i, 1);
-    autoResetAnalysis();
-    autoRenderFiles();
-  }
-  function autoRenderFiles() {
-    document.getElementById('auto-files').innerHTML = autoState.files.map((f, i) => `
-      <div class="auto-file"><span>${escapeHtml(f.name)}</span><small>${fmtBytes(f.size)}</small>
-        <button type="button" onclick="autoRemoveFile(${i})" title="Remove">✕</button></div>`).join('');
-  }
-  function autoResetAnalysis() {
-    autoState.analysis = null; autoState.jobId = null; autoState.skip = new Set();
-    document.getElementById('auto-scenes-card').classList.add('hidden');
-    document.getElementById('auto-settings-card').classList.add('hidden');
-    clearError('auto-analyze-error');
-  }
-  function escapeHtml(t) {
-    return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
-  (() => {
-    const drop = document.getElementById('auto-drop');
-    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
-    drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
-    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag-over'); autoAddFiles(e.dataTransfer.files); });
-    document.getElementById('auto-videos').addEventListener('change', e => { autoAddFiles(e.target.files); e.target.value = ''; });
-    document.getElementById('auto-music').addEventListener('change', e => {
-      const f = e.target.files[0];
-      if (!f) return;
-      autoState.music = f;
-      document.getElementById('auto-music-name').textContent = `${f.name} · ${fmtBytes(f.size)}`;
-      document.getElementById('auto-music-zone').classList.add('has-file');
-      document.querySelector('#auto-music-zone .tool-file-btn').textContent = '♪ Change';
-      autoResetAnalysis();
-    });
-  })();
-
-  async function autoAnalyze() {
-    clearError('auto-analyze-error');
-    if (!autoState.files.length) return showError('auto-analyze-error', 'Add at least one video first.');
-    const fd = new FormData();
-    autoState.files.forEach(f => fd.append('videos', f));
-    if (autoState.music) fd.append('music', autoState.music);
-    setLoading('auto-analyze-btn', true, 'Uploading…');
-    try {
-      const res = await fetch('/auto/analyze', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!data.success) return showError('auto-analyze-error', data.error);
-      setLoading('auto-analyze-btn', true, 'Finding scenes…');
-      const r = await pollJob(data.job_id, 'auto-analyze-btn', 'Finding scenes…');
-      autoState.jobId = data.job_id;
-      autoState.analysis = r;
-      autoState.skip = new Set(r.scenes.filter(s => s.skip).map(s => s.id));
-      autoRenderScenes();
-    } catch (e) {
-      showError('auto-analyze-error', e.message);
-    } finally {
-      setLoading('auto-analyze-btn', false, 'Find scenes');
-    }
-  }
-
-  function autoRenderScenes() {
-    const a = autoState.analysis, multi = a.durations.length > 1;
-    const FLAG = { dark: 'Dark', blurry: 'Blurry', static: 'Still' };
-    document.getElementById('auto-scenes').innerHTML = a.scenes.map(s => `
-      <button type="button" class="auto-scene${autoState.skip.has(s.id) ? ' off' : ''}" data-id="${s.id}" onclick="autoToggleScene(${s.id})"
-              title="${escapeHtml(a.names[s.source])} · ${fmtSec(s.start)}–${fmtSec(s.end)}">
-        ${s.thumb ? `<img src="/output/${encodeURIComponent(s.thumb)}" alt="" loading="lazy">` : ''}
-        ${s.flags.length ? `<span class="flag">${FLAG[s.flags[0]]}</span>` : ''}
-        ${multi ? `<span class="src">${s.source + 1}</span>` : ''}
-        <span class="t">${fmtSec(s.start)}</span>
-      </button>`).join('');
-    autoSummary();
-    const beat = document.getElementById('auto-beat'), row = document.getElementById('auto-beat-row');
-    const hasBeat = !!a.bpm;
-    beat.disabled = !hasBeat; beat.checked = hasBeat;
-    row.classList.toggle('is-off', !hasBeat);
-    document.getElementById('auto-bpm').textContent = hasBeat ? `· ${a.bpm} BPM` : (a.music_name ? '· no steady beat found' : '· add music to use this');
-    document.getElementById('auto-sound').checked = !a.music_name && a.has_audio.some(Boolean);
-    document.getElementById('auto-scenes-card').classList.remove('hidden');
-    document.getElementById('auto-settings-card').classList.remove('hidden');
-  }
-
-  function autoToggleScene(id) {
-    autoState.skip.has(id) ? autoState.skip.delete(id) : autoState.skip.add(id);
-    document.querySelector(`.auto-scene[data-id="${id}"]`).classList.toggle('off', autoState.skip.has(id));
-    autoSummary();
-  }
-
-  function autoSummary() {
-    const a = autoState.analysis;
-    const kept = a.scenes.filter(s => !autoState.skip.has(s.id));
-    const secs = kept.reduce((t, s) => t + (s.end - s.start), 0);
-    document.getElementById('auto-summary').innerHTML =
-      `<strong>${kept.length}</strong> of ${a.scenes.length} scenes · ${fmtSec(secs)} of footage` + (a.bpm ? ` · ♪ ${a.bpm} BPM` : '');
-  }
-
-  function autoShowResult(r) {
-    const fmt = autoOpt('format');
-    document.getElementById('auto-video-wrap').style.aspectRatio = fmt.replace(':', '/');
-    const v = document.getElementById('auto-video');
-    v.src = `/output/${encodeURIComponent(r.output)}`;
-    v.load();
-    document.getElementById('auto-dl').href = `/output/${encodeURIComponent(r.output)}`;
-    document.getElementById('auto-meta').innerHTML = `<div>Duration: <span>${r.total_duration}s</span> &nbsp;·&nbsp; File: <span>${escapeHtml(r.output)}</span></div>`;
-    document.getElementById('auto-placeholder').classList.add('hidden');
-    document.getElementById('auto-output').classList.remove('hidden');
-    if (window.innerWidth < 768) document.getElementById('auto-output').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  async function autoCreate() {
-    clearError('auto-create-error');
-    if (!autoState.jobId) return showError('auto-create-error', 'Find the scenes first.');
-    if (currentPlan && !currentPlan.pro && currentPlan.generations_used >= currentPlan.generations_limit) return showLimitModal('generations');
-    const body = {
-      job_id: autoState.jobId, skip: [...autoState.skip],
-      length: autoOpt('length'), pace: autoOpt('pace'), format: autoOpt('format'), fit: autoOpt('fit'),
-      position: autoOpt('position'), beat_sync: document.getElementById('auto-beat').checked,
-      keep_sound: document.getElementById('auto-sound').checked,
-      caption: document.getElementById('auto-caption').value,
-    };
-    setLoading('auto-create-btn', true, 'Starting…');
-    try {
-      const res = await fetch('/auto/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await res.json();
-      if (!data.success) {
-        showError('auto-create-error', data.error, data.upgrade);
-        if (data.upgrade) showLimitModal('generations');
-        return;
-      }
-      autoState.session = data.session_id;
-      autoState.textOpts = data.text_opts;
-      const r = await pollJob(data.job_id, 'auto-create-btn', 'Rendering…');
-      autoShowResult(r);
-      loadPlan();
-    } catch (e) {
-      showError('auto-create-error', e.message);
-    } finally {
-      setLoading('auto-create-btn', false, 'Create Video');
-    }
-  }
-
-  async function autoVariation() {
-    clearError('auto-variation-error');
-    if (!autoState.session) return;
-    setLoading('auto-variation-btn', true, 'Rendering…');
-    try {
-      const res = await fetch('/variation', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: autoState.session, ...autoState.textOpts, use_original_duration: true }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        showError('auto-variation-error', data.error, data.upgrade);
-        if (data.upgrade) showLimitModal('variations');
-        return;
-      }
-      const r = await pollJob(data.job_id, 'auto-variation-btn', 'Rendering…');
-      autoShowResult(r);
-    } catch (e) {
-      showError('auto-variation-error', e.message);
-    } finally {
-      setLoading('auto-variation-btn', false, 'New Variation');
-    }
   }
 
   // ── Screenshots tool: timeline, previews, result ──────────────────────────
@@ -3397,7 +3123,7 @@
 
   // Tools config (const TOOLS) is declared above, so build the tab only here
   renderTools();
-  try { const v = localStorage.getItem('clipsnap-view'); if (v === 'tools' || v === 'auto') switchView(v); } catch (_) {}
+  try { if (localStorage.getItem('clipsnap-view') === 'tools') switchView('tools'); } catch (_) {}
   loadPlan();
 </script>
 </body>

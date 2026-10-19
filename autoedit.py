@@ -1,4 +1,4 @@
-"""Auto Edit: find scenes in long videos, score them, find the beat of a track and plan a beat-synced cut.
+"""Smart Auto (Create's Auto mode): find scenes in clips, score them, find the beat of a track, plan a cut.
 
 Everything runs on FFmpeg plus plain Python (no numpy), on low-resolution copies of the footage, so a
 few minutes of video are analysed in seconds. The planned cut is rendered by compositor.compose_video:
@@ -28,7 +28,7 @@ JUMP_DIFF = 18              # sampled frames this different (mean abs, 0-255) al
 JUMP_LUMA = 12              # ...or a brightness jump this big (soft cuts FFmpeg's scene score misses)
 THUMB_PX = 200              # longest side of a scene preview
 PACE_SECONDS = {"fast": 1.0, "medium": 1.8, "slow": 3.0}
-LENGTHS = (15, 30, 60)
+MIN_LENGTH, MAX_LENGTH = 5, 120   # seconds a Smart Auto video can be asked to last
 FPS = 30                    # compose_video renders at 30 fps; cut points are snapped to frames
 MAX_SOURCE_SECONDS = 600    # total footage one Auto Edit may analyse
 MAX_SOURCES = 10
@@ -126,7 +126,7 @@ def _thumb(src, t, dst):
     return r.returncode == 0 and os.path.isfile(dst)
 
 
-def analyze(sources, music, out_dir, prefix):
+def analyze(sources, music, out_dir=None, prefix="", thumbs=True, max_seconds=MAX_SOURCE_SECONDS):
     """Scenes of every source with quality flags and previews, and the beat of the music (if any).
 
     sources: list of video paths. Previews are written to out_dir as "<prefix>_scene_###.jpg".
@@ -135,9 +135,9 @@ def analyze(sources, music, out_dir, prefix):
     durations = [get_video_duration(p) for p in sources]
     if any(d <= 0 for d in durations):
         raise ValueError("One of the files has no video stream")
-    if sum(durations) > MAX_SOURCE_SECONDS + 1:
-        raise ValueError(f"Auto Edit can use up to {MAX_SOURCE_SECONDS // 60} minutes of footage at once. "
-                         "Use fewer or shorter videos.")
+    if sum(durations) > max_seconds + 1:
+        raise ValueError(f"Auto can use up to {max_seconds // 60} minutes of footage at once. "
+                         "Use fewer or shorter clips, or switch to Manual trim.")
 
     with ThreadPoolExecutor(min(4, len(sources))) as pool:
         per_source = list(pool.map(lambda a: _scenes_for(a[0], a[1], a[2]),
@@ -170,8 +170,9 @@ def analyze(sources, music, out_dir, prefix):
         name = f"{prefix}_scene_{s['id']:03d}.jpg"
         ok = _thumb(sources[s["source"]], (s["start"] + s["end"]) / 2, os.path.join(out_dir, name))
         s["thumb"] = name if ok else None
-    with ThreadPoolExecutor(4) as pool:
-        list(pool.map(preview, scenes))
+    if thumbs and out_dir:
+        with ThreadPoolExecutor(4) as pool:
+            list(pool.map(preview, scenes))
     for s in scenes:
         for k in ("luma", "sharp", "motion"):
             s.pop(k, None)
@@ -265,12 +266,13 @@ def detect_beat(path):
 
 # ── Planning the cut ─────────────────────────────────────────────────────────
 
-def plan_cut(scenes, durations, length, pace, beat_period=None):
+def plan_cut(scenes, durations, length, pace, beat_period=None, overlap=0.0):
     """Segments (source, start, duration) for a video of about `length` seconds.
 
     Segments are spread evenly over the kept footage in time order, one window per spot. With a beat
     period every cut lands on a beat: segment lengths are whole numbers of beats closest to the pace,
-    snapped to frames from absolute beat times so the cuts don't drift.
+    snapped to frames from absolute beat times so the cuts don't drift. `overlap` (crossfade length) is
+    added to each segment so transitions don't make the video shorter than asked.
     """
     kept = [s for s in scenes if not s.get("skip")]
     if not kept:
@@ -286,7 +288,7 @@ def plan_cut(scenes, durations, length, pace, beat_period=None):
 
     # Cut points on an absolute grid (beats or pace), rounded to whole frames
     marks = [round(i * cut * FPS) / FPS for i in range(n + 1)]
-    lengths = [b - a for a, b in zip(marks, marks[1:])]
+    lengths = [b - a + overlap for a, b in zip(marks, marks[1:])]
 
     segments = []
     spacing = total / n

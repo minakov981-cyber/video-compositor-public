@@ -27,8 +27,8 @@ STATIC_DIFF = 0.8           # mean frame-to-frame change below which a scene cou
 JUMP_DIFF = 18              # sampled frames this different (mean abs, 0-255) also mark a cut
 JUMP_LUMA = 12              # ...or a brightness jump this big (soft cuts FFmpeg's scene score misses)
 THUMB_PX = 200              # longest side of a scene preview
-PACE_SECONDS = {"fast": 1.0, "medium": 1.8, "slow": 3.0}
-MIN_LENGTH, MAX_LENGTH = 5, 120   # seconds a Smart Auto video can be asked to last
+PACE_SECONDS = {"fast": 1.0, "medium": 1.8, "slow": 3.0}   # piece per clip without music
+PACE_BEATS = {"fast": 2, "medium": 4, "slow": 8}           # piece per clip with music, in beats
 FPS = 30                    # compose_video renders at 30 fps; cut points are snapped to frames
 MAX_SOURCE_SECONDS = 600    # total footage one Auto Edit may analyse
 MAX_SOURCES = 10
@@ -174,6 +174,10 @@ def analyze(sources, music, out_dir=None, prefix="", thumbs=True, max_seconds=MA
         with ThreadPoolExecutor(4) as pool:
             list(pool.map(preview, scenes))
     for s in scenes:
+        median_sharp = medians[s["source"]] or 1
+        # Sharper (relative to its own video) and moving shots first; flagged ones last
+        s["score"] = round(min(2.0, s["sharp"] / median_sharp) + (0.0 if "static" in s["flags"] else 0.3)
+                           - (1.0 if s["skip"] else 0.0), 3)
         for k in ("luma", "sharp", "motion"):
             s.pop(k, None)
 
@@ -266,44 +270,38 @@ def detect_beat(path):
 
 # ── Planning the cut ─────────────────────────────────────────────────────────
 
-def plan_cut(scenes, durations, length, pace, beat_period=None, overlap=0.0):
-    """Segments (source, start, duration) for a video of about `length` seconds.
+def plan_cut(scenes, durations, pace, beat_period=None, overlap=0.0):
+    """One piece from each clip, in clip order: [{source, start, duration, scene}].
 
-    Segments are spread evenly over the kept footage in time order, one window per spot. With a beat
-    period every cut lands on a beat: segment lengths are whole numbers of beats closest to the pace,
-    snapped to frames from absolute beat times so the cuts don't drift. `overlap` (crossfade length) is
-    added to each segment so transitions don't make the video shorter than asked.
+    With a beat period each piece lasts PACE_BEATS[pace] beats (fewer whole beats if the clip is too
+    short), and cut points are snapped to frames from absolute beat times, so every cut lands on a beat
+    and they don't drift. Without music a piece lasts PACE_SECONDS[pace]. The piece comes from the
+    clip's best scene that is long enough (sharp, moving, not flagged), centred in it. `overlap`
+    (crossfade length) is added to each piece so transitions don't eat into it.
     """
-    kept = [s for s in scenes if not s.get("skip")]
-    if not kept:
-        raise ValueError("All scenes are switched off. Turn on at least one scene.")
-    target = PACE_SECONDS[pace]
-    if beat_period:
-        beats = max(1, round(target / beat_period))
-        cut = beats * beat_period
-    else:
-        cut = target
-    total = sum(s["end"] - s["start"] for s in kept)
-    n = max(1, min(int(length // cut), int(total // cut) or 1, 300))
+    by_source = {}
+    for sc in scenes:
+        by_source.setdefault(sc["source"], []).append(sc)
 
-    # Cut points on an absolute grid (beats or pace), rounded to whole frames
-    marks = [round(i * cut * FPS) / FPS for i in range(n + 1)]
-    lengths = [b - a + overlap for a, b in zip(marks, marks[1:])]
-
-    segments = []
-    spacing = total / n
-    for j, seg_len in enumerate(lengths):
-        spot = (j + 0.5) * spacing          # centre of this segment along the kept footage
-        acc = 0.0
-        for s in kept:
-            span = s["end"] - s["start"]
-            if spot <= acc + span or s is kept[-1]:
-                centre = s["start"] + min(span, max(0.0, spot - acc))
-                start = max(s["start"], min(centre - seg_len / 2, s["end"] - seg_len))
-                start = max(0.0, min(start, durations[s["source"]] - seg_len))
-                segments.append({"source": s["source"], "start": round(start, 3), "duration": round(seg_len, 4),
-                                 "scene": s["id"]})
-                break
-            acc += span
-
-    return segments
+    plan, beats_so_far, secs_so_far = [], 0, 0.0
+    for src in range(len(durations)):
+        options = by_source.get(src) or [{"id": -1, "start": 0.0, "end": durations[src], "score": 0}]
+        if beat_period:
+            want = PACE_BEATS[pace]
+            fit = max(1, min(want, int(durations[src] / beat_period + 1e-6)))
+            start_mark = round(beats_so_far * beat_period * FPS) / FPS
+            beats_so_far += fit
+            length = round(beats_so_far * beat_period * FPS) / FPS - start_mark
+        else:
+            length = min(PACE_SECONDS[pace], durations[src])
+            start_mark = round(secs_so_far * FPS) / FPS
+            secs_so_far += length
+            length = round(secs_so_far * FPS) / FPS - start_mark
+        length = min(length, durations[src])
+        roomy = [o for o in options if o["end"] - o["start"] >= length - 1e-3]
+        best = max(roomy or options, key=lambda o: (o.get("score", 0), o["end"] - o["start"]))
+        centre = (best["start"] + best["end"]) / 2
+        start = max(0.0, min(centre - length / 2, durations[src] - length))
+        plan.append({"source": src, "start": round(start, 3), "duration": round(length + overlap, 4),
+                     "scene": best["id"]})
+    return plan

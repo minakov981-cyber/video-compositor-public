@@ -948,9 +948,7 @@ def compose():
     # Smart Auto: the clips are analysed and cut in the render job (see _plan_smart_session)
     smart = None
     if request.form.get("auto_mode") == "smart" and not use_original_duration:
-        length = int(request.form.get("auto_length", 15)) if request.form.get("auto_length", "").isdigit() else 15
         smart = {
-            "length":    max(autoedit.MIN_LENGTH, min(autoedit.MAX_LENGTH, length)),
             "pace":      request.form.get("auto_pace") if request.form.get("auto_pace") in autoedit.PACE_SECONDS else "medium",
             "beat_sync": request.form.get("beat_sync", "false").lower() == "true" and bool(audio_path),
         }
@@ -1179,9 +1177,9 @@ SMART_BEAT = "smart-beat"         # ...after planning, cuts on the beat
 
 
 def _plan_smart_session(session_id, smart):
-    """Smart Auto: pick the best moments of the session's clips and store them as trimmed segments.
+    """Smart Auto: pick the best moment of each of the session's clips and store them as trimmed segments.
 
-    Runs once per session (a retried job finds it planned). Each segment is a hard link to its clip
+    Runs once per session (a retried job finds it planned). Each piece is a hard link to its clip
     with its own trim, so compose_video renders them like separate clips and New Variation reshuffles
     them. Intro clips' segments stay first and final clips' last; final segments keep "final" in the
     name so they get the usual last-clip treatment.
@@ -1202,8 +1200,7 @@ def _plan_smart_session(session_id, smart):
     if transition != "none":
         overlap = round(max(0.1, min(float(s.get("transition_duration") or 0.5), 0.45 * autoedit.PACE_SECONDS[smart["pace"]])), 3)
 
-    segments = autoedit.plan_cut(analysis["scenes"], analysis["durations"], smart["length"], smart["pace"],
-                                 period, overlap)
+    segments = autoedit.plan_cut(analysis["scenes"], analysis["durations"], smart["pace"], period, overlap)
 
     music_start = float(s.get("music_start") or 0.0)
     if period:
@@ -1216,14 +1213,12 @@ def _plan_smart_session(session_id, smart):
     os.makedirs(seg_dir, exist_ok=True)
     hooks, finals = set(s["hook_clips"]), set(s["final_clips"])
     clip_audios = s.get("clip_audios") or {}
-    hook, middle, final, trims, audios, counts = [], [], [], {}, {}, {}
+    hook, middle, final, trims, audios = [], [], [], {}, {}
     for seg in segments:
         src = sources[seg["source"]]
         role = "final" if src in finals else "intro" if src in hooks else ""
-        # Named after the clip ("beach_day-2.mp4"), which also keeps "final" in final clips' names
-        counts[src] = counts.get(src, 0) + 1
-        stem, ext = os.path.splitext(os.path.basename(src))
-        path = os.path.join(seg_dir, f"{stem}-{counts[src]}{ext or '.mp4'}")
+        # One piece per clip, so it keeps the clip's name (and "final" in final clips' names)
+        path = os.path.join(seg_dir, os.path.basename(src))
         try:
             os.link(src, path)
         except OSError:
